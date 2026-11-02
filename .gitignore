@@ -1,0 +1,44 @@
+# Gradle / 构建产物
+.gradle/
+/build/
+/out/
+/bin/
+/eclipse/
+
+# IDE
+/.idea/
+/.vscode/
+*.iml
+*.ipr
+*.iws
+.classpath
+.project
+.settings/
+.factorypath
+
+# 开发运行目录
+/run/
+/crash-reports/
+/logs/
+/saves/
+options.txt
+usernamecache.json
+usercache.json
+servers.dat
+eula.txt
+server.properties
+ops.json
+whitelist.json
+banned-ips.json
+banned-players.json
+layout.json
+
+# 本地覆盖配置
+addon.local.gradle
+addon.local.gradle.kts
+addon.late.local.gradle
+addon.late.local.gradle.kts
+
+# 系统文件
+.DS_Store
+Thumbs.db
