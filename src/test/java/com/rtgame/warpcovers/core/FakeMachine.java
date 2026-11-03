@@ -19,6 +19,9 @@ final class FakeMachine implements MachinePort {
     long insertShortfall = 0;
     /** 拒绝一切插入（用来模拟退不回去）。 */
     boolean refuseInsert = false;
+    /** 退回时无视容量与 refuseInsert 全部收下（像 GT 端口强制放回原槽或掉落在旁边）。 */
+    boolean restoreAlways = false;
+    long restored = 0;
     boolean alive = true;
     String machineName;
     int extractCalls = 0;
@@ -99,5 +102,15 @@ final class FakeMachine implements MachinePort {
             contents.put(key, amountOf(key) + accepted);
         }
         return accepted;
+    }
+
+    @Override
+    public long restore(String key, long amount) {
+        if (!restoreAlways) {
+            return MachinePort.super.restore(key, amount);
+        }
+        restored += amount;
+        contents.put(key, amountOf(key) + amount);
+        return amount;
     }
 }

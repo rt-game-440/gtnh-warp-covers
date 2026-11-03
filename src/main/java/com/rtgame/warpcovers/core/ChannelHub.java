@@ -560,7 +560,7 @@ public final class ChannelHub {
         long rest = leftover - Math.min(
             leftover,
             input.port()
-                .insert(key, leftover, false));
+                .restore(key, leftover));
         for (Endpoint other : outputs) {
             if (rest <= 0) {
                 break;

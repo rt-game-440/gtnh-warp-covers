@@ -14,6 +14,7 @@ import com.rtgame.warpcovers.gt.WarpEvents;
 import com.rtgame.warpcovers.selfcheck.DevEnvironment;
 import com.rtgame.warpcovers.selfcheck.FluidChannelScenario;
 import com.rtgame.warpcovers.selfcheck.HullSmokeScenario;
+import com.rtgame.warpcovers.selfcheck.ItemChannelScenario;
 import com.rtgame.warpcovers.selfcheck.PersistenceScenario;
 import com.rtgame.warpcovers.selfcheck.SelfCheckCommand;
 import com.rtgame.warpcovers.selfcheck.SelfCheckLog;
@@ -53,8 +54,11 @@ public class CommonProxy {
         }
         File gameDir = Launch.minecraftHome != null ? Launch.minecraftHome : new File(".");
         Path logDir = SelfCheckLogDir.resolve(gameDir);
-        List<SelfCheckScenario> scenarios = Arrays
-            .<SelfCheckScenario>asList(new HullSmokeScenario(), new FluidChannelScenario(), new PersistenceScenario());
+        List<SelfCheckScenario> scenarios = Arrays.<SelfCheckScenario>asList(
+            new HullSmokeScenario(),
+            new FluidChannelScenario(),
+            new PersistenceScenario(),
+            new ItemChannelScenario());
         SelfCheckRunner runner = new SelfCheckRunner(
             new File(gameDir, "warpcovers-selfcheck-state.txt").toPath(),
             new SelfCheckLog(logDir, Clock.systemDefaultZone()),

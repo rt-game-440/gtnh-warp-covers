@@ -1,5 +1,8 @@
 # 开发记忆
 
+- 2026-11-03 15:50 GTNHLib 物品迭代器陷阱：`InventoryItemSink.simulatedSinkIterator()` 的 `rewind()` 恒返回 false、不支持 previous，模拟只能单遍逐槽 `insert(..., false)` 累计；`AbstractInventoryIterator.previousIndex()/nextIndex()` 返回的是相邻**槽号** `slots[last∓1]` 而不是迭代位置（第一个元素调 previousIndex 越界 -1），要自己数位置（见 `gt/GtItemPort`）。`InventoryIterator.extract(n, forced)` 第二参数是 forced 不是 simulate。
+- 2026-11-03 15:50 物品键 `注册名@损伤值[#Base64(按键名排序重建的 NBT)]`（`gt/ItemKeys`）；`FilterList` 在匹配 NBT 关时按 `ObjectKeys.withoutNbt` 比较。核心退回余量走 `MachinePort.restore`：物品端口先强制放回原槽、再正常放入、最后在方块旁掉落，保证不丢物品。
+- 2026-11-03 15:50 覆盖板通用逻辑在 `gt/WarpCover` 抽象基类，流体/物品子类只给 `channelType()`、`createPort()` 和 GT 的 letsXxxIn/Out；新类型覆盖板照此加。自检失败消息由 `SelfCheckRunner.describe` 带前 8 层栈。
 - 2026-11-03 15:00 GT 2.9.0 覆盖板界面走 ModularUI2：覆盖板重写 `getCoverGui()` 返回 `CoverBaseGui` 子类（见 `gt/WarpCoverGui`）；`Cover.onCoverShiftRightClick(player)` 在 `GTGuis.GLOBAL_SWITCH_MUI2` 下调 `CoverUIFactory.INSTANCE.open(...)` 打开界面。开发环境可用 `/warpcovers_selfcheck gui <x> <y> <z> <面>` 直接打开，截图不必模拟蹲下右键。
 - 2026-11-03 15:00 界面快照与动作：服务器端 `CoverPanel` 产出快照（`gt/PanelSnapshot` 转 NBT 经 `GenericSyncValue` 下发），所有操作走 `registerSyncedAction(key, false, true, …)` 只在服务器执行；客户端只做预检（重名、空名、超长）。核心测试替身是 `core` 包私有类，`gt` 包测试要内联最小实现。
 - 2026-11-03 15:00 用户常在同一台电脑上玩 GTNH 实例；windows-mcp 返回 `USER_CONTROL`（系统空闲时间≈0）时不要启动开发客户端或抢桌面，把 3 级截图推迟到桌面空闲时统一采集。

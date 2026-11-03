@@ -44,6 +44,8 @@ import com.cleanroommc.modularui.widgets.ScrollingTextWidget;
 import com.cleanroommc.modularui.widgets.ToggleButton;
 import com.cleanroommc.modularui.widgets.layout.Flow;
 import com.cleanroommc.modularui.widgets.slot.FluidSlot;
+import com.cleanroommc.modularui.widgets.slot.ModularSlot;
+import com.cleanroommc.modularui.widgets.slot.PhantomItemSlot;
 import com.cleanroommc.modularui.widgets.textfield.TextFieldWidget;
 import com.rtgame.warpcovers.WarpCovers;
 import com.rtgame.warpcovers.core.ChannelHub;
@@ -51,6 +53,7 @@ import com.rtgame.warpcovers.core.ChannelType;
 import com.rtgame.warpcovers.core.CoverPanel;
 import com.rtgame.warpcovers.core.CreateFailure;
 import com.rtgame.warpcovers.core.InteractionState;
+import com.rtgame.warpcovers.core.ObjectKeys;
 import com.rtgame.warpcovers.core.Viewer;
 
 import gregtech.api.modularui2.CoverGuiData;
@@ -58,11 +61,11 @@ import gregtech.api.modularui2.GTGuiTextures;
 import gregtech.common.gui.modularui.cover.base.CoverBaseGui;
 
 /**
- * 流体折跃覆盖板界面：左侧边栏「频道」「设置」两页，底部状态栏。
+ * 折跃覆盖板界面（流体、物品共用）：左侧边栏「频道」「设置」两页，底部状态栏。
  * 服务端按玩家构建快照（{@link PanelSnapshot}）同步给客户端，客户端的每个操作都是发往服务端的请求，
  * 由 {@link CoverPanel} 校验后执行，结果随下一次快照回到界面。
  */
-public final class WarpCoverGui extends CoverBaseGui<FluidWarpCover> {
+public final class WarpCoverGui extends CoverBaseGui<WarpCover> {
 
     private static final int ROOT_W = 196;
     private static final int ROOT_H = 146;
@@ -81,18 +84,19 @@ public final class WarpCoverGui extends CoverBaseGui<FluidWarpCover> {
     private static final InteractionState[] STATES = { InteractionState.INPUT, InteractionState.OUTPUT,
         InteractionState.EMPTY };
 
-    public WarpCoverGui(FluidWarpCover cover) {
+    public WarpCoverGui(WarpCover cover) {
         super(cover);
     }
 
     @Override
     protected String getGuiId() {
-        return "warpcovers.fluid";
+        return "warpcovers." + cover.channelType()
+            .key();
     }
 
     @Override
     protected boolean doesBindPlayerInventory() {
-        // 名单靠光标上的流体容器添加，需要能从背包拿起容器
+        // 名单靠光标上的物品或流体容器添加，需要能从背包拿起
         return true;
     }
 
@@ -138,7 +142,7 @@ public final class WarpCoverGui extends CoverBaseGui<FluidWarpCover> {
                     player.getUniqueID()
                         .toString(),
                     player.getCommandSenderName());
-                panel = new CoverPanel(WarpServices.hub(), ChannelType.FLUID, cover, new Random());
+                panel = new CoverPanel(WarpServices.hub(), cover.channelType(), cover, new Random());
             }
             channels = new NbtValue(() -> client ? new NBTTagCompound() : PanelSnapshot.channels(panel, viewer));
             filter = new NbtValue(() -> client ? new NBTTagCompound() : PanelSnapshot.filter(cover.config()));
@@ -165,6 +169,7 @@ public final class WarpCoverGui extends CoverBaseGui<FluidWarpCover> {
                 }
             });
             action("whitelist", buf -> panel.setWhitelist(buf.readBoolean()));
+            action("matchnbt", buf -> panel.setMatchNbt(buf.readBoolean()));
             action("remove", buf -> panel.removeFilterKey(NetworkUtils.readStringSafe(buf)));
             action("clear", buf -> panel.clearFilter());
         }
@@ -488,16 +493,42 @@ public final class WarpCoverGui extends CoverBaseGui<FluidWarpCover> {
             });
             page.child(clear);
 
-            FilterInputTank tank = new FilterInputTank(client ? null : key -> panel.addFilterKey(key));
-            FluidSlot slot = new FluidSlot();
-            slot.syncHandler(
-                new FluidSlotSyncHandler(tank).phantom(true)
-                    .controlsAmount(false))
-                .pos(0, 20)
-                .addTooltipLine(tr("warpcovers.gui.filter.add"));
-            page.child(slot);
+            Consumer<String> addKey = client ? null : key -> panel.addFilterKey(key);
+            if (isItem()) {
+                ButtonWidget<?> nbt = new ButtonWidget<>();
+                nbt.pos(PAGE_W - 38, 0)
+                    .size(16, 16)
+                    .background(
+                        new DynamicDrawable(
+                            () -> isMatchNbt() ? GTGuiTextures.BUTTON_STANDARD_PRESSED : GTGuiTextures.BUTTON_STANDARD))
+                    .overlay(GTGuiTextures.OVERLAY_BUTTON_NBT)
+                    .tooltipDynamic(
+                        tooltip -> tooltip.addLine(
+                            tr(isMatchNbt() ? "warpcovers.gui.filter.nbt_on" : "warpcovers.gui.filter.nbt_off")))
+                    .tooltipAutoUpdate(true);
+                nbt.onMousePressed(mouse -> {
+                    boolean next = !isMatchNbt();
+                    send("matchnbt", buf -> buf.writeBoolean(next));
+                    return true;
+                });
+                page.child(nbt);
+
+                PhantomItemSlot slot = new PhantomItemSlot().slot(new ModularSlot(new FilterInputInventory(addKey), 0));
+                slot.pos(0, 20)
+                    .addTooltipLine(tr("warpcovers.gui.filter.add_item"));
+                page.child(slot);
+            } else {
+                FilterInputTank tank = new FilterInputTank(addKey);
+                FluidSlot slot = new FluidSlot();
+                slot.syncHandler(
+                    new FluidSlotSyncHandler(tank).phantom(true)
+                        .controlsAmount(false))
+                    .pos(0, 20)
+                    .addTooltipLine(tr("warpcovers.gui.filter.add"));
+                page.child(slot);
+            }
             page.child(
-                IKey.lang("warpcovers.gui.filter.hint")
+                IKey.lang(isItem() ? "warpcovers.gui.filter.hint_item" : "warpcovers.gui.filter.hint")
                     .asWidget()
                     .pos(22, 25)
                     .size(PAGE_W - 24, 9)
@@ -532,14 +563,26 @@ public final class WarpCoverGui extends CoverBaseGui<FluidWarpCover> {
         }
 
         private IWidget filterRow(String key) {
-            Fluid fluid = FluidRegistry.getFluid(key);
-            FluidStack stack = fluid == null ? null : new FluidStack(fluid, 1000);
-            String label = stack == null ? key : stack.getLocalizedName();
+            IDrawable icon;
+            String label;
+            if (isItem()) {
+                ItemStack stack = ItemKeys.prototype(key);
+                icon = new ItemDrawable(stack);
+                label = stack == null ? key : stack.getDisplayName();
+                if (ObjectKeys.hasNbt(key)) {
+                    label = tr("warpcovers.gui.filter.with_nbt", label);
+                }
+            } else {
+                Fluid fluid = FluidRegistry.getFluid(key);
+                FluidStack stack = fluid == null ? null : new FluidStack(fluid, 1000);
+                icon = new FluidDrawable(stack);
+                label = stack == null ? key : stack.getLocalizedName();
+            }
 
             ParentWidget<?> row = new ParentWidget<>();
             row.size(ROW_W, ROW_H);
             row.child(
-                new FluidDrawable(stack).asWidget()
+                icon.asWidget()
                     .pos(1, 1)
                     .size(12, 12)
                     .addTooltipLine(label));
@@ -589,6 +632,14 @@ public final class WarpCoverGui extends CoverBaseGui<FluidWarpCover> {
 
         private boolean isWhitelist() {
             return PanelSnapshot.parseFilter(filter.getValue()).whitelist;
+        }
+
+        private boolean isMatchNbt() {
+            return PanelSnapshot.parseFilter(filter.getValue()).matchNbt;
+        }
+
+        private boolean isItem() {
+            return cover.channelType() == ChannelType.ITEM;
         }
     }
 

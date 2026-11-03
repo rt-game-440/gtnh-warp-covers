@@ -3,6 +3,7 @@ warpcovers.mod.name=折跃覆盖板
 warpcovers.mod.description=为 GTNH 提供基于覆盖板的物品、流体与能量折跃频道。
 
 item.warpcovers.cover.fluid.name=流体折跃覆盖板
+item.warpcovers.cover.item.name=物品折跃覆盖板
 itemGroup.warpcovers=折跃覆盖板
 
 warpcovers.state.input=输入
@@ -36,11 +37,16 @@ warpcovers.gui.dialog.connect=创建后直接连接
 warpcovers.gui.dialog.confirm=确定
 warpcovers.gui.dialog.cancel=取消
 warpcovers.gui.filter.toggle=切换白名单 / 黑名单
-warpcovers.gui.filter.whitelist=白名单：只传输列出的流体
-warpcovers.gui.filter.blacklist=黑名单：不传输列出的流体
+warpcovers.gui.filter.whitelist=白名单：只传输名单中的内容
+warpcovers.gui.filter.blacklist=黑名单：不传输名单中的内容
 warpcovers.gui.filter.clear=清空名单
 warpcovers.gui.filter.add=拿着流体容器点击，或从 NEI 拖入流体，加入名单
 warpcovers.gui.filter.hint=放入流体容器或从 NEI 拖入以添加
+warpcovers.gui.filter.add_item=拿着物品点击，或从 NEI 拖入物品，加入名单（不消耗物品）
+warpcovers.gui.filter.hint_item=点击放入物品或从 NEI 拖入以添加
+warpcovers.gui.filter.nbt_on=匹配 NBT：开（附魔、改名等 NBT 不同的物品视为不同）
+warpcovers.gui.filter.nbt_off=匹配 NBT：关（只看物品 ID 与损伤值）
+warpcovers.gui.filter.with_nbt=%s（带 NBT）
 warpcovers.gui.filter.empty=名单为空
 warpcovers.gui.filter.remove=从名单中移除
 warpcovers.gui.status=状态：%s

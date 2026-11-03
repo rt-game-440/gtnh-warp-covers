@@ -64,6 +64,7 @@ public final class PanelSnapshot {
         NBTTagCompound root = new NBTTagCompound();
         FilterList filter = config.filter();
         root.setBoolean("wl", filter.isWhitelist());
+        root.setBoolean("nbt", filter.matchNbt());
         NBTTagList keys = new NBTTagList();
         for (String key : filter.keys()) {
             keys.appendTag(new NBTTagString(key));
@@ -115,16 +116,18 @@ public final class PanelSnapshot {
     public static FilterView parseFilter(NBTTagCompound root) {
         List<String> keys = new ArrayList<String>();
         boolean whitelist = true;
+        boolean matchNbt = false;
         if (root != null) {
             if (root.hasKey("wl")) {
                 whitelist = root.getBoolean("wl");
             }
+            matchNbt = root.getBoolean("nbt");
             NBTTagList list = root.getTagList("keys", TAG_STRING);
             for (int i = 0; i < list.tagCount(); i++) {
                 keys.add(list.getStringTagAt(i));
             }
         }
-        return new FilterView(whitelist, keys);
+        return new FilterView(whitelist, matchNbt, keys);
     }
 
     public static StatusView parseStatus(NBTTagCompound root) {
@@ -208,10 +211,13 @@ public final class PanelSnapshot {
     public static final class FilterView {
 
         public final boolean whitelist;
+        /** 物品名单是否连 NBT 一起匹配。 */
+        public final boolean matchNbt;
         public final List<String> keys;
 
-        FilterView(boolean whitelist, List<String> keys) {
+        FilterView(boolean whitelist, boolean matchNbt, List<String> keys) {
             this.whitelist = whitelist;
+            this.matchNbt = matchNbt;
             this.keys = Collections.unmodifiableList(keys);
         }
     }

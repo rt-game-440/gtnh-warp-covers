@@ -17,6 +17,7 @@ import gregtech.api.render.TextureFactory;
 public final class ModItems {
 
     public static Item fluidCover;
+    public static Item itemCover;
 
     public static final CreativeTabs TAB = new CreativeTabs(WarpCovers.MODID) {
 
@@ -39,6 +40,16 @@ public final class ModItems {
         final ITexture texture = TextureFactory.of(Textures.BlockIcons.OVERLAY_ADV_PUMP);
         CoverRegistry
             .registerCover(new ItemStack(fluidCover), texture, context -> new FluidWarpCover(context, texture));
+
+        itemCover = new WarpCoverItem();
+        itemCover.setUnlocalizedName(WarpCovers.MODID + ".cover.item");
+        itemCover.setTextureName(WarpCovers.MODID + ":warp_cover_item");
+        itemCover.setCreativeTab(TAB);
+        GameRegistry.registerItem(itemCover, "warp_cover_item");
+
+        final ITexture itemTexture = TextureFactory.of(Textures.BlockIcons.OVERLAY_CONVEYOR);
+        CoverRegistry
+            .registerCover(new ItemStack(itemCover), itemTexture, context -> new ItemWarpCover(context, itemTexture));
 
         RecipeSorter.register(
             WarpCovers.MODID + ":clear_config",

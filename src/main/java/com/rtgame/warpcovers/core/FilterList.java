@@ -9,7 +9,7 @@ import java.util.Set;
 public final class FilterList {
 
     private boolean whitelist = true;
-    /** 物品名单是否连 NBT 一起匹配；流体名单忽略此项。 */
+    /** 物品名单是否连 NBT 一起匹配；流体键不含 NBT，不受此项影响。 */
     private boolean matchNbt = false;
     private final Set<String> keys = new LinkedHashSet<String>();
 
@@ -52,9 +52,29 @@ public final class FilterList {
         keys.addAll(newKeys);
     }
 
-    /** 该物体是否通过名单。白名单只放行名单内的；黑名单放行名单外的。 */
+    /**
+     * 该物体是否通过名单。白名单只放行名单内的；黑名单放行名单外的。
+     * 关闭「匹配 NBT」时只比较物品 ID 和损伤值：名单项和待检物体都去掉 NBT 部分再比。
+     */
     public boolean allows(String key) {
-        return whitelist == keys.contains(key);
+        return whitelist == contains(key);
+    }
+
+    private boolean contains(String key) {
+        if (matchNbt) {
+            return keys.contains(key);
+        }
+        String base = ObjectKeys.withoutNbt(key);
+        if (keys.contains(base)) {
+            return true;
+        }
+        for (String entry : keys) {
+            if (ObjectKeys.hasNbt(entry) && ObjectKeys.withoutNbt(entry)
+                .equals(base)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     public FilterList copy() {

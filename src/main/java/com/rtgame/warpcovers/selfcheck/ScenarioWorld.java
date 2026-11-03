@@ -4,6 +4,7 @@ import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.List;
 
+import net.minecraft.item.Item;
 import net.minecraft.item.ItemBlock;
 import net.minecraft.item.ItemStack;
 import net.minecraft.server.MinecraftServer;
@@ -20,7 +21,9 @@ import net.minecraftforge.fluids.FluidStack;
 import com.rtgame.warpcovers.core.Channel;
 import com.rtgame.warpcovers.core.ChannelHub;
 import com.rtgame.warpcovers.gt.FluidWarpCover;
+import com.rtgame.warpcovers.gt.ItemWarpCover;
 import com.rtgame.warpcovers.gt.ModItems;
+import com.rtgame.warpcovers.gt.WarpCover;
 
 import gregtech.api.covers.CoverRegistry;
 import gregtech.api.enums.ItemList;
@@ -184,17 +187,34 @@ final class ScenarioWorld {
     }
 
     static FluidWarpCover attachCover(IGregTechTileEntity tile, ForgeDirection side) {
-        Cover cover = CoverRegistry.buildCover(new ItemStack(ModItems.fluidCover), side, tile);
-        tile.attachCover(cover);
-        return coverAt(tile, side);
+        return attach(tile, side, ModItems.fluidCover, FluidWarpCover.class);
     }
 
     static FluidWarpCover coverAt(IGregTechTileEntity tile, ForgeDirection side) {
+        return coverAt(tile, side, FluidWarpCover.class);
+    }
+
+    static ItemWarpCover attachItemCover(IGregTechTileEntity tile, ForgeDirection side) {
+        return attach(tile, side, ModItems.itemCover, ItemWarpCover.class);
+    }
+
+    static ItemWarpCover itemCoverAt(IGregTechTileEntity tile, ForgeDirection side) {
+        return coverAt(tile, side, ItemWarpCover.class);
+    }
+
+    private static <T extends WarpCover> T attach(IGregTechTileEntity tile, ForgeDirection side, Item item,
+        Class<T> type) {
+        Cover cover = CoverRegistry.buildCover(new ItemStack(item), side, tile);
+        tile.attachCover(cover);
+        return coverAt(tile, side, type);
+    }
+
+    private static <T extends WarpCover> T coverAt(IGregTechTileEntity tile, ForgeDirection side, Class<T> type) {
         Cover attached = tile.getCoverAtSide(side);
-        if (!(attached instanceof FluidWarpCover)) {
-            throw new IllegalStateException("该面没有流体折跃覆盖板: " + side + " 实际 " + attached);
+        if (!type.isInstance(attached)) {
+            throw new IllegalStateException("该面没有" + type.getSimpleName() + ": " + side + " 实际 " + attached);
         }
-        return (FluidWarpCover) attached;
+        return type.cast(attached);
     }
 
     /** 从顶面注入水，返回实际注入量。 */
@@ -206,8 +226,8 @@ final class ScenarioWorld {
         return filled;
     }
 
-    static void runCovers(long now, FluidWarpCover... covers) {
-        for (FluidWarpCover cover : covers) {
+    static void runCovers(long now, WarpCover... covers) {
+        for (WarpCover cover : covers) {
             cover.doCoverThings((byte) 0, now);
         }
     }

@@ -3,6 +3,7 @@ warpcovers.mod.name=Warp Covers
 warpcovers.mod.description=Cover-based item, fluid and energy warp channels for GTNH.
 
 item.warpcovers.cover.fluid.name=Fluid Warp Cover
+item.warpcovers.cover.item.name=Item Warp Cover
 itemGroup.warpcovers=Warp Covers
 
 warpcovers.state.input=Input
@@ -36,11 +37,16 @@ warpcovers.gui.dialog.connect=Connect after creating
 warpcovers.gui.dialog.confirm=Create
 warpcovers.gui.dialog.cancel=Cancel
 warpcovers.gui.filter.toggle=Toggle whitelist / blacklist
-warpcovers.gui.filter.whitelist=Whitelist: only listed fluids are sent
-warpcovers.gui.filter.blacklist=Blacklist: listed fluids are not sent
+warpcovers.gui.filter.whitelist=Whitelist: only listed entries are sent
+warpcovers.gui.filter.blacklist=Blacklist: listed entries are not sent
 warpcovers.gui.filter.clear=Clear the list
 warpcovers.gui.filter.add=Click with a fluid container, or drag a fluid from NEI, to add it
 warpcovers.gui.filter.hint=Insert a fluid container or drag from NEI
+warpcovers.gui.filter.add_item=Click with an item, or drag one from NEI, to add it (the item is not consumed)
+warpcovers.gui.filter.hint_item=Click with an item or drag from NEI
+warpcovers.gui.filter.nbt_on=Match NBT: on (items with different enchantments, names or other NBT are different)
+warpcovers.gui.filter.nbt_off=Match NBT: off (only item ID and damage value matter)
+warpcovers.gui.filter.with_nbt=%s (with NBT)
 warpcovers.gui.filter.empty=The list is empty
 warpcovers.gui.filter.remove=Remove from the list
 warpcovers.gui.status=Status: %s

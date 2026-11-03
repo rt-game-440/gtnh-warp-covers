@@ -30,6 +30,16 @@ public interface MachinePort {
      */
     long insert(String key, long amount, boolean simulate);
 
+    /**
+     * 把本端口刚抽出、却没能送出去的物体退回机器。和 {@link #insert} 不同，退回可以无视面规则
+     * （例如退回 GT 机器的输出槽），实在放不下时端口可以把物体掉落在方块旁，保证不凭空消失。
+     *
+     * @return 退回（含掉落）的数量；小于 amount 的部分由核心计为丢失
+     */
+    default long restore(String key, long amount) {
+        return insert(key, amount, false);
+    }
+
     /** 机器是否仍然有效（方块被破坏、区块卸载后返回 false）。 */
     default boolean isAlive() {
         return true;

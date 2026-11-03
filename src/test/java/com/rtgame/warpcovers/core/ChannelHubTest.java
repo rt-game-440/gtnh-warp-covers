@@ -499,6 +499,21 @@ class ChannelHubTest {
     }
 
     @Test
+    void 余量退回来源走端口的退回而不是普通插入() {
+        FakeMachine in = new FakeMachine("A", 5000).with("water", 1000);
+        in.refuseInsert = true;
+        in.restoreAlways = true;
+        FakeMachine liar = new FakeMachine("B", 5000);
+        liar.insertShortfall = 100;
+        attach("in", in, InteractionState.INPUT, "water");
+        attach("out", liar, InteractionState.OUTPUT, "water");
+        TransferResult result = hub.driveInput("in", 0);
+        assertEquals(0, result.lost());
+        assertEquals(100, in.restored, "普通插入被拒时仍能通过 restore 退回");
+        assertConserved(1000, in, liar);
+    }
+
+    @Test
     void 实在无处可退时如实报告丢失量() {
         FakeMachine in = new FakeMachine("A", 5000).with("water", 1000);
         in.refuseInsert = true;
