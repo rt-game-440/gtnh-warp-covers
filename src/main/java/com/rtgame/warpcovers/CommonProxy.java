@@ -3,12 +3,16 @@ package com.rtgame.warpcovers;
 import java.io.File;
 import java.nio.file.Path;
 import java.time.Clock;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
 import net.minecraft.launchwrapper.Launch;
 
+import com.rtgame.warpcovers.gt.ModItems;
+import com.rtgame.warpcovers.gt.WarpServices;
 import com.rtgame.warpcovers.selfcheck.DevEnvironment;
+import com.rtgame.warpcovers.selfcheck.FluidChannelScenario;
 import com.rtgame.warpcovers.selfcheck.HullSmokeScenario;
 import com.rtgame.warpcovers.selfcheck.SelfCheckCommand;
 import com.rtgame.warpcovers.selfcheck.SelfCheckLog;
@@ -28,25 +32,29 @@ public class CommonProxy {
         ServerConfig.load(event.getSuggestedConfigurationFile());
     }
 
-    public void init(FMLInitializationEvent event) {}
+    public void init(FMLInitializationEvent event) {
+        ModItems.register();
+    }
 
     public void postInit(FMLPostInitializationEvent event) {}
 
     public void serverStarting(FMLServerStartingEvent event) {
+        WarpServices.reset();
         // 自检命令仅开发环境注册；发布版不暴露
         if (!DevEnvironment.isDevelopment(Launch.blackboard)) {
             return;
         }
         File gameDir = Launch.minecraftHome != null ? Launch.minecraftHome : new File(".");
         Path logDir = SelfCheckLogDir.resolve(gameDir);
-        List<SelfCheckScenario> scenarios = Arrays.<SelfCheckScenario>asList(new HullSmokeScenario());
+        List<SelfCheckScenario> scenarios = Arrays.<SelfCheckScenario>asList(new HullSmokeScenario(), new FluidChannelScenario());
         SelfCheckRunner runner = new SelfCheckRunner(
             new File(gameDir, "warpcovers-selfcheck-state.txt").toPath(),
             new SelfCheckLog(logDir, Clock.systemDefaultZone()),
             scenarios);
-        List<String> names = Arrays.asList(
-            scenarios.get(0)
-                .name());
+        List<String> names = new ArrayList<String>();
+        for (SelfCheckScenario scenario : scenarios) {
+            names.add(scenario.name());
+        }
         event.registerServerCommand(new SelfCheckCommand(runner, names));
         WarpCovers.LOG.info("开发环境：已注册 /warpcovers_selfcheck");
     }

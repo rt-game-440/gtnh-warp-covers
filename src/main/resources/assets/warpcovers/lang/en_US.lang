@@ -1,3 +1,6 @@
 # WarpCovers language file (en_US, fallback)
 warpcovers.mod.name=Warp Covers
 warpcovers.mod.description=Cover-based item, fluid and energy warp channels for GTNH.
+
+item.warpcovers.cover.fluid.name=Fluid Warp Cover
+itemGroup.warpcovers=Warp Covers

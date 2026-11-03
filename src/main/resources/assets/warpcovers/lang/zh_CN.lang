@@ -1,3 +1,6 @@
 # 折跃覆盖板 语言文件 (zh_CN)
 warpcovers.mod.name=折跃覆盖板
 warpcovers.mod.description=为 GTNH 提供基于覆盖板的物品、流体与能量折跃频道。
+
+item.warpcovers.cover.fluid.name=流体折跃覆盖板
+itemGroup.warpcovers=折跃覆盖板
