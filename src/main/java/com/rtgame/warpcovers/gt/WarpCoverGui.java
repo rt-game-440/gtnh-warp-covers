@@ -34,6 +34,7 @@ import com.cleanroommc.modularui.drawable.GuiTextures;
 import com.cleanroommc.modularui.drawable.ItemDrawable;
 import com.cleanroommc.modularui.drawable.Rectangle;
 import com.cleanroommc.modularui.network.NetworkUtils;
+import com.cleanroommc.modularui.screen.ModularPanel;
 import com.cleanroommc.modularui.utils.Alignment;
 import com.cleanroommc.modularui.utils.serialization.ByteBufAdapters;
 import com.cleanroommc.modularui.value.BoolValue;
@@ -71,9 +72,11 @@ import com.rtgame.warpcovers.core.Identity;
 import com.rtgame.warpcovers.core.InteractionState;
 import com.rtgame.warpcovers.core.NumberInput;
 import com.rtgame.warpcovers.core.ObjectKeys;
+import com.rtgame.warpcovers.core.PanelEndpoint;
 import com.rtgame.warpcovers.core.PanelNotice;
 import com.rtgame.warpcovers.core.Permission;
 import com.rtgame.warpcovers.core.PrivateTags;
+import com.rtgame.warpcovers.core.RemoteEndpoint;
 import com.rtgame.warpcovers.core.Viewer;
 
 import gregtech.api.modularui2.CoverGuiData;
@@ -100,6 +103,16 @@ public final class WarpCoverGui extends CoverBaseGui<BaseWarpCover> {
     private static final int FIELD_GAP = 3;
     private static final int FILTER_Y = 25;
     private static final int LIST_Y = FILTER_Y + 42;
+    /** 管理器的编辑页在设置页上方多一块头部，整个界面比覆盖板高。 */
+    private static final int EDITOR_HEADER_H = 31;
+    private static final int EDITOR_BUTTON_W = 40;
+    private static final int MANAGER_PAGE_H = PAGE_H + EDITOR_HEADER_H;
+    private static final int MANAGER_ROOT_H = ROOT_H + EDITOR_HEADER_H;
+    private static final int PLAYER_INVENTORY_H = 84;
+    /** 配置面板里的连接端列表：标题和翻页一行，每页若干行。 */
+    private static final int ENDPOINT_ROWS = 5;
+    private static final int ENDPOINT_ROW_H = 13;
+    private static final int ENDPOINT_LIST_H = 16 + ENDPOINT_ROWS * ENDPOINT_ROW_H + 4;
     private static final int QUICK_BUTTON_W = 34;
     private static final int QUICK_COLUMNS = 8;
     private static final int QUICK_ROWS = 4;
@@ -232,12 +245,57 @@ public final class WarpCoverGui extends CoverBaseGui<BaseWarpCover> {
         pages.addPage(settings);
         root.child(pages);
 
-        addStatusBar(root, () -> {
+        addStatusBar(root, STATUS_Y, () -> {
             int page = controller.isInitialised() ? controller.getActivePageIndex() : 0;
             if (page < sessions.size()) {
                 return sessions.get(page);
             }
             return sessions.get(segments.isInitialised() ? segments.getActivePageIndex() : 0);
+        });
+        return root;
+    }
+
+    /** 折跃频道管理器的界面：没有覆盖板，三个类型各一个频道页和一个远程修改页。 */
+    static ModularPanel managerPanel(EntityPlayer player, PanelSyncManager syncManager) {
+        ModularPanel panel = ModularPanel
+            .defaultPanel("warpcovers_manager", ROOT_W + 14, MANAGER_ROOT_H + 14 + PLAYER_INVENTORY_H);
+        panel.child(new WarpCoverGui(null).managerRoot(syncManager, player));
+        return panel.bindPlayerInventory();
+    }
+
+    private IWidget managerRoot(PanelSyncManager syncManager, EntityPlayer player) {
+        ChannelType[] types = ChannelType.values();
+        List<Session> sessions = new ArrayList<>();
+        PagedWidget.Controller controller = new PagedWidget.Controller();
+        PagedWidget<?> pages = new PagedWidget<>();
+        pages.controller(controller)
+            .pos(PAGE_X, 0)
+            .size(PAGE_W, MANAGER_PAGE_H);
+        ParentWidget<?> root = new ParentWidget<>();
+        root.pos(7, 7)
+            .size(ROOT_W, MANAGER_ROOT_H);
+        for (int i = 0; i < types.length; i++) {
+            int index = i;
+            Session session = new Session(syncManager, player, types[i], "warpcovers_" + types[i].key() + "_");
+            session.openEditor = () -> controller.setPage(types.length + index);
+            session.closeEditor = () -> controller.setPage(index);
+            sessions.add(session);
+            root.child(
+                tab(
+                    i,
+                    controller,
+                    new ItemDrawable(sectionIcon(types[i])).asIcon()
+                        .size(16),
+                    "warpcovers.gui.tab.channels_" + types[i].key()).pos(0, i * (TAB_SIZE + 2)));
+            pages.addPage(session.channelsPage());
+        }
+        for (Session session : sessions) {
+            pages.addPage(session.editorPage());
+        }
+        root.child(pages);
+        addStatusBar(root, MANAGER_PAGE_H + 4, () -> {
+            int page = controller.isInitialised() ? controller.getActivePageIndex() : 0;
+            return sessions.get(page % types.length);
         });
         return root;
     }
@@ -253,13 +311,13 @@ public final class WarpCoverGui extends CoverBaseGui<BaseWarpCover> {
         }
     }
 
-    private void addStatusBar(ParentWidget<?> root, Supplier<Session> active) {
+    private void addStatusBar(ParentWidget<?> root, int y, Supplier<Session> active) {
         root.child(
             IKey.dynamic(
                 () -> active.get()
                     .statusLine())
                 .asWidget()
-                .pos(0, STATUS_Y)
+                .pos(0, y)
                 .size(ROOT_W, 10)
                 .color(TEXT_COLOR));
         root.child(
@@ -267,7 +325,7 @@ public final class WarpCoverGui extends CoverBaseGui<BaseWarpCover> {
                 () -> active.get()
                     .detailLine())
                 .asWidget()
-                .pos(0, STATUS_Y + 12)
+                .pos(0, y + 12)
                 .size(ROOT_W, 10)
                 .color(
                     () -> active.get()
@@ -302,7 +360,14 @@ public final class WarpCoverGui extends CoverBaseGui<BaseWarpCover> {
     private final class Session {
 
         private final PanelSyncManager sync;
-        private final WarpPart part;
+        /** 这个会话操作的连接端：覆盖板上的部分，或管理器远程选中的连接端。客户端的管理器会话没有。 */
+        private final PanelEndpoint endpoint;
+        private final ChannelType type;
+        /** 折跃频道管理器的会话：频道页没有连接操作，配置面板多一个连接端列表。 */
+        private final boolean manager;
+        private final RemoteEndpoint remote;
+        /** 频道页高度：管理器界面更高。 */
+        private final int channelsH;
         /** 同步键前缀：聚合覆盖板的三个会话不能互相冲突。 */
         private final String syncPrefix;
         /** 设置页高度：聚合覆盖板要给顶部的类型切换让位。 */
@@ -324,6 +389,14 @@ public final class WarpCoverGui extends CoverBaseGui<BaseWarpCover> {
         private IPanelHandler deleteDialog;
         private IPanelHandler tagDialog;
         private IPanelHandler quickDialog;
+        /** 服务端正在向客户端列出连接端的频道；配置面板打开时才设置。 */
+        private String listedChannelId = "";
+        private final NbtValue endpointsValue;
+        private final NbtValue selectedValue;
+        private int endpointPage;
+        /** 管理器：切到连接端编辑页、返回频道页。 */
+        private Runnable openEditor = () -> {};
+        private Runnable closeEditor = () -> {};
         /** 服务端最近一次汇总的候选；打开弹窗时才刷新。 */
         private NBTTagCompound quickSnapshot = new NBTTagCompound();
         private final NbtValue quickValue;
@@ -343,26 +416,42 @@ public final class WarpCoverGui extends CoverBaseGui<BaseWarpCover> {
         private PanelSnapshot.ChannelsView parsedView;
 
         Session(PanelSyncManager sync, EntityPlayer player, WarpPart part, String syncPrefix, int settingsH) {
+            this(sync, player, part, part.channelType(), syncPrefix, settingsH, PAGE_H, false);
+        }
+
+        /** 管理器会话。 */
+        Session(PanelSyncManager sync, EntityPlayer player, ChannelType type, String syncPrefix) {
+            this(sync, player, null, type, syncPrefix, PAGE_H, MANAGER_PAGE_H, true);
+        }
+
+        private Session(PanelSyncManager sync, EntityPlayer player, PanelEndpoint given, ChannelType type,
+            String syncPrefix, int settingsH, int channelsH, boolean manager) {
             this.sync = sync;
-            this.part = part;
+            this.type = type;
+            this.channelsH = channelsH;
+            this.manager = manager;
             this.syncPrefix = syncPrefix;
             this.settingsH = settingsH;
             this.client = sync.isClient();
             if (client) {
                 panel = null;
                 viewer = null;
+                remote = null;
+                endpoint = given;
             } else {
                 // 不能用 sync.getPlayer()：构建界面时同步管理器还没绑定到容器
                 viewer = new Viewer(
                     player.getUniqueID()
                         .toString(),
                     player.getCommandSenderName());
-                panel = new CoverPanel(WarpServices.hub(), part.channelType(), part, new Random());
+                remote = manager ? new RemoteEndpoint(WarpServices.hub(), viewer) : null;
+                endpoint = manager ? remote : given;
+                panel = new CoverPanel(WarpServices.hub(), type, endpoint, new Random());
             }
             channels = new NbtValue(() -> client ? new NBTTagCompound() : PanelSnapshot.channels(panel, viewer));
             recentValue = new NbtValue(() -> client ? new NBTTagCompound() : PanelSnapshot.recents(panel, viewer));
             sync.syncValue(syncPrefix + "recents", recentValue);
-            filter = new NbtValue(() -> client ? new NBTTagCompound() : PanelSnapshot.filter(part.config()));
+            filter = new NbtValue(() -> client ? new NBTTagCompound() : PanelSnapshot.filter(endpoint.config()));
             status = new NbtValue(
                 () -> client ? new NBTTagCompound()
                     : PanelSnapshot.status(
@@ -373,10 +462,17 @@ public final class WarpCoverGui extends CoverBaseGui<BaseWarpCover> {
             sync.syncValue(syncPrefix + "filter", filter);
             quickValue = new NbtValue(() -> quickSnapshot);
             sync.syncValue(syncPrefix + "quick", quickValue);
+            endpointsValue = new NbtValue(
+                () -> client || listedChannelId.isEmpty() ? new NBTTagCompound()
+                    : PanelSnapshot.endpoints(panel, viewer, listedChannelId));
+            selectedValue = new NbtValue(
+                () -> client || remote == null ? new NBTTagCompound() : PanelSnapshot.selected(remote));
+            sync.syncValue(syncPrefix + "endpoints", endpointsValue);
+            sync.syncValue(syncPrefix + "selected", selectedValue);
             sync.syncValue(syncPrefix + "status", status);
             priority = new LongSyncValue(
                 () -> client ? 0
-                    : part.config()
+                    : endpoint.config()
                         .priority(),
                 value -> {
                     if (!client) {
@@ -385,7 +481,7 @@ public final class WarpCoverGui extends CoverBaseGui<BaseWarpCover> {
                 });
             rate = new LongSyncValue(
                 () -> client ? 0
-                    : part.config()
+                    : endpoint.config()
                         .rate(),
                 value -> {
                     if (!client) {
@@ -394,7 +490,7 @@ public final class WarpCoverGui extends CoverBaseGui<BaseWarpCover> {
                 });
             period = new LongSyncValue(
                 () -> client ? 0
-                    : part.config()
+                    : endpoint.config()
                         .period(),
                 value -> {
                     if (!client) {
@@ -412,7 +508,7 @@ public final class WarpCoverGui extends CoverBaseGui<BaseWarpCover> {
             action("create", buf -> {
                 String name = NetworkUtils.readStringSafe(buf);
                 boolean connect = buf.readBoolean();
-                panel.createChannel(viewer, name, connect);
+                panel.createChannel(viewer, name, connect && !manager);
             });
             action("toggle", buf -> panel.toggleConnection(viewer, NetworkUtils.readStringSafe(buf)));
             action("state", buf -> {
@@ -425,6 +521,22 @@ public final class WarpCoverGui extends CoverBaseGui<BaseWarpCover> {
             action("matchnbt", buf -> panel.setMatchNbt(buf.readBoolean()));
             action("remove", buf -> panel.removeFilterKey(NetworkUtils.readStringSafe(buf)));
             action("clear", buf -> panel.clearFilter());
+            if (manager) {
+                action("ep_list", buf -> listedChannelId = NetworkUtils.readStringSafe(buf));
+                action("ep_select", buf -> {
+                    PanelNotice failure = remote.select(NetworkUtils.readStringSafe(buf));
+                    if (failure != null) {
+                        panel.report(failure);
+                    }
+                });
+                action("ep_clear", buf -> remote.clear());
+                action("ep_disconnect", buf -> {
+                    if (remote.isEditable()) {
+                        remote.disconnect();
+                        panel.report(new PanelNotice("remote_disconnected", "", false));
+                    }
+                });
+            }
             action("quick_refresh", buf -> quickSnapshot = PanelSnapshot.candidates(panel.filterCandidates()));
             action("quick_add", buf -> {
                 int count = buf.readInt();
@@ -486,7 +598,7 @@ public final class WarpCoverGui extends CoverBaseGui<BaseWarpCover> {
             pages.addPage(settingsPage());
             root.child(pages);
 
-            addStatusBar(root, () -> this);
+            addStatusBar(root, STATUS_Y, () -> this);
             return root;
         }
 
@@ -494,7 +606,7 @@ public final class WarpCoverGui extends CoverBaseGui<BaseWarpCover> {
 
         private IWidget channelsPage() {
             ParentWidget<?> page = new ParentWidget<>();
-            page.size(PAGE_W, PAGE_H);
+            page.size(PAGE_W, channelsH);
 
             ButtonWidget<?> create = new ButtonWidget<>();
             create.pos(0, 0)
@@ -527,7 +639,7 @@ public final class WarpCoverGui extends CoverBaseGui<BaseWarpCover> {
             DynamicSyncedWidget<?> holder = new DynamicSyncedWidget<>();
             holder.syncHandler(dynamic)
                 .pos(0, ROW_H + 3)
-                .size(PAGE_W, PAGE_H - ROW_H - 3);
+                .size(PAGE_W, channelsH - ROW_H - 3);
             page.child(holder);
             return page;
         }
@@ -548,7 +660,7 @@ public final class WarpCoverGui extends CoverBaseGui<BaseWarpCover> {
 
         private IWidget channelList(PanelSnapshot.ChannelsView view) {
             ListWidget<IWidget, ?> list = new ListWidget<>();
-            list.size(PAGE_W, PAGE_H - ROW_H - 3);
+            list.size(PAGE_W, channelsH - ROW_H - 3);
             boolean any = false;
             ChannelGroup lastGroup = null;
             for (PanelSnapshot.ChannelRow row : view.rows) {
@@ -556,7 +668,7 @@ public final class WarpCoverGui extends CoverBaseGui<BaseWarpCover> {
                     continue;
                 }
                 any = true;
-                boolean connected = view.isConnected(row.id);
+                boolean connected = !manager && view.isConnected(row.id);
                 if (!connected && row.group != lastGroup) {
                     lastGroup = row.group;
                     list.child(
@@ -582,10 +694,9 @@ public final class WarpCoverGui extends CoverBaseGui<BaseWarpCover> {
 
         /** 第一行：颜色、频道名、最近传输的图标；第二行：归属者、连接端数量、私人标签。 */
         private IWidget channelRow(PanelSnapshot.ChannelRow row, boolean connected) {
-            boolean gear = row.hasConfigPanel();
+            boolean gear = !manager && row.hasConfigPanel();
             int width = gear ? ROW_W - 15 : ROW_W;
-            boolean showRecents = part.channelType()
-                .hasFilter();
+            boolean showRecents = type.hasFilter();
             int iconsW = showRecents ? RECENT_ICONS * RECENT_ICON : 0;
             ParentWidget<?> content = new ParentWidget<>();
             content.size(width, CHANNEL_ROW_H);
@@ -627,7 +738,10 @@ public final class WarpCoverGui extends CoverBaseGui<BaseWarpCover> {
                             tooltip.addLine(tr("warpcovers.gui.row.recent", objectLabel(key)));
                         }
                     }
-                    tooltip.addLine(tr(connected ? "warpcovers.gui.row.disconnect" : "warpcovers.gui.row.connect"));
+                    tooltip.addLine(
+                        tr(
+                            manager ? "warpcovers.gui.row.manage"
+                                : connected ? "warpcovers.gui.row.disconnect" : "warpcovers.gui.row.connect"));
                     tooltip.addLine(tr("warpcovers.gui.row.tags"));
                 })
                 .tooltipAutoUpdate(true);
@@ -641,6 +755,10 @@ public final class WarpCoverGui extends CoverBaseGui<BaseWarpCover> {
                 }
                 if (mouse != 0) {
                     return false;
+                }
+                if (manager) {
+                    openConfigDialog(button, row.id);
+                    return true;
                 }
                 send("toggle", buf -> NetworkUtils.writeStringSafe(buf, row.id));
                 return true;
@@ -894,13 +1012,15 @@ public final class WarpCoverGui extends CoverBaseGui<BaseWarpCover> {
                 .background(false, GuiTextures.CHECK_BOX_EMPTY)
                 .background(true, GuiTextures.CHECK_BOX_FULL)
                 .pos(8, 57)
-                .size(10, 10);
+                .size(10, 10)
+                .setEnabledIf(w -> !manager);
             dialog.child(toggle);
             dialog.child(
                 IKey.lang("warpcovers.gui.dialog.connect")
                     .asWidget()
                     .pos(22, 58)
-                    .color(TEXT_COLOR));
+                    .color(TEXT_COLOR)
+                    .setEnabledIf(w -> !manager));
 
             ButtonWidget<?> confirm = new ButtonWidget<>();
             confirm.pos(8, 74)
@@ -1010,6 +1130,10 @@ public final class WarpCoverGui extends CoverBaseGui<BaseWarpCover> {
             configChannelId = channelId;
             configActed = false;
             configLocalError = "";
+            if (manager) {
+                endpointPage = 0;
+                send("ep_list", buf -> NetworkUtils.writeStringSafe(buf, channelId));
+            }
             configDialog.deleteCachedPanel();
             configDialog.openPanel();
         }
@@ -1018,7 +1142,7 @@ public final class WarpCoverGui extends CoverBaseGui<BaseWarpCover> {
             Dialog<Boolean> dialog = new Dialog<>(syncPrefix + "channel_config");
             dialog.setDraggable(false);
             dialog.setCloseOnOutOfBoundsClick(true);
-            dialog.size(CFG_W, CFG_H);
+            dialog.size(CFG_W, manager ? CFG_H + ENDPOINT_LIST_H : CFG_H);
             // 删除确认弹窗挂在配置面板上，配置面板每次打开都是新对象，要跟着重建
             deleteDialog = null;
             PanelSnapshot.ChannelRow row = configRow();
@@ -1095,6 +1219,9 @@ public final class WarpCoverGui extends CoverBaseGui<BaseWarpCover> {
                 return true;
             });
             dialog.child(close);
+            if (manager) {
+                addEndpointList(dialog);
+            }
             return dialog;
         }
 
@@ -1381,8 +1508,7 @@ public final class WarpCoverGui extends CoverBaseGui<BaseWarpCover> {
             ParentWidget<?> page = new ParentWidget<>();
             page.size(PAGE_W, settingsH);
             addTransferFields(page);
-            if (!part.channelType()
-                .hasFilter()) {
+            if (!type.hasFilter()) {
                 return energyNotes(page);
             }
 
@@ -1543,6 +1669,202 @@ public final class WarpCoverGui extends CoverBaseGui<BaseWarpCover> {
             return tr("warpcovers.gui.field.period_tip", effectivePeriod.getLongValue());
         }
 
+        // ---- 管理器：连接端列表和远程修改 ----
+
+        private List<PanelSnapshot.EndpointRow> endpointRows() {
+            return PanelSnapshot.parseEndpoints(endpointsValue.getValue(), configChannelId);
+        }
+
+        private int endpointPageCount() {
+            return Math.max(1, (endpointRows().size() + ENDPOINT_ROWS - 1) / ENDPOINT_ROWS);
+        }
+
+        private PanelSnapshot.EndpointRow endpointAt(int slot) {
+            List<PanelSnapshot.EndpointRow> rows = endpointRows();
+            int index = Math.min(endpointPage, endpointPageCount() - 1) * ENDPOINT_ROWS + slot;
+            return index < rows.size() ? rows.get(index) : null;
+        }
+
+        private String machineLabel(PanelSnapshot.EndpointRow row) {
+            if (row.machineName.isEmpty()) {
+                return tr("warpcovers.gui.endpoint.machine_unknown");
+            }
+            String named = row.machineName + ".name";
+            String translated = tr(named);
+            return translated.equals(named) ? tr(row.machineName) : translated;
+        }
+
+        private String endpointLine(PanelSnapshot.EndpointRow row) {
+            return tr(
+                "warpcovers.gui.endpoint.line",
+                row.dimension,
+                row.x,
+                row.y,
+                row.z,
+                machineLabel(row),
+                tr(WarpCoverItem.stateKey(row.state)),
+                tr(row.loaded ? "warpcovers.gui.endpoint.loaded" : "warpcovers.gui.endpoint.unloaded"));
+        }
+
+        private void addEndpointList(Dialog<Boolean> dialog) {
+            int y = CFG_H - 2;
+            dialog.child(
+                IKey.dynamic(() -> tr("warpcovers.gui.endpoint.title", endpointRows().size()))
+                    .asWidget()
+                    .pos(8, y + 3)
+                    .size(CFG_W - 80, 9)
+                    .color(0xFF222222));
+            int pagerX = CFG_W - 8 - 62;
+            ButtonWidget<?> previous = new ButtonWidget<>();
+            previous.pos(pagerX, y)
+                .size(14, 14)
+                .overlay(
+                    IKey.str("<")
+                        .color(BUTTON_TEXT));
+            previous.onMousePressed(mouse -> {
+                endpointPage = Math.max(0, Math.min(endpointPage, endpointPageCount() - 1) - 1);
+                return true;
+            });
+            dialog.child(previous);
+            dialog.child(
+                IKey.dynamic(() -> (Math.min(endpointPage, endpointPageCount() - 1) + 1) + "/" + endpointPageCount())
+                    .asWidget()
+                    .alignment(Alignment.Center)
+                    .pos(pagerX + 15, y + 3)
+                    .size(32, 9)
+                    .color(TEXT_COLOR));
+            ButtonWidget<?> next = new ButtonWidget<>();
+            next.pos(pagerX + 48, y)
+                .size(14, 14)
+                .overlay(
+                    IKey.str(">")
+                        .color(BUTTON_TEXT));
+            next.onMousePressed(mouse -> {
+                endpointPage = Math.min(endpointPageCount() - 1, endpointPage + 1);
+                return true;
+            });
+            dialog.child(next);
+
+            for (int i = 0; i < ENDPOINT_ROWS; i++) {
+                int slot = i;
+                ButtonWidget<?> row = new ButtonWidget<>();
+                row.pos(8, y + 16 + i * ENDPOINT_ROW_H)
+                    .size(CFG_W - 16, ENDPOINT_ROW_H - 1)
+                    .background(new DynamicDrawable(() -> {
+                        PanelSnapshot.EndpointRow current = endpointAt(slot);
+                        return current != null && current.editable ? GTGuiTextures.BUTTON_STANDARD
+                            : GTGuiTextures.BUTTON_STANDARD_DISABLED;
+                    }))
+                    .child(new ScrollingTextWidget(IKey.dynamic(() -> {
+                        PanelSnapshot.EndpointRow current = endpointAt(slot);
+                        if (current == null) {
+                            return "";
+                        }
+                        return (current.editable ? "" : "\u00a78") + endpointLine(current);
+                    })).pos(3, 2)
+                        .size(CFG_W - 22, 8)
+                        .color(BUTTON_TEXT))
+                    .tooltipDynamic(tooltip -> {
+                        PanelSnapshot.EndpointRow current = endpointAt(slot);
+                        if (current == null) {
+                            return;
+                        }
+                        tooltip.addLine(endpointLine(current));
+                        tooltip.addLine(
+                            tr(
+                                current.editable ? "warpcovers.gui.endpoint.edit_tip"
+                                    : current.loaded ? "warpcovers.gui.endpoint.no_permission_tip"
+                                        : "warpcovers.gui.endpoint.unloaded_tip"));
+                    })
+                    .tooltipAutoUpdate(true)
+                    .setEnabledIf(w -> endpointAt(slot) != null);
+                row.onMousePressed(mouse -> {
+                    PanelSnapshot.EndpointRow current = endpointAt(slot);
+                    if (mouse == 0 && current != null && current.editable) {
+                        send("ep_select", buf -> NetworkUtils.writeStringSafe(buf, current.id));
+                        dialog.closeWith(true);
+                        openEditor.run();
+                    }
+                    return true;
+                });
+                dialog.child(row);
+            }
+        }
+
+        private PanelSnapshot.EndpointRow selectedRow() {
+            return PanelSnapshot.parseSelected(selectedValue.getValue());
+        }
+
+        /** 远程修改页：顶部是连接端信息、交互状态、断开，下面和覆盖板的设置页一样。 */
+        private IWidget editorPage() {
+            ParentWidget<?> page = new ParentWidget<>();
+            page.size(PAGE_W, MANAGER_PAGE_H);
+            page.child(new ScrollingTextWidget(IKey.dynamic(() -> {
+                PanelSnapshot.EndpointRow row = selectedRow();
+                if (row == null) {
+                    return tr("warpcovers.notice.endpoint_missing");
+                }
+                return endpointLine(row) + (row.editable ? "" : tr("warpcovers.gui.manager.readonly"));
+            })).pos(0, 3)
+                .size(PAGE_W - EDITOR_BUTTON_W - 2, 9)
+                .color(TEXT_COLOR));
+
+            ButtonWidget<?> back = new ButtonWidget<>();
+            back.pos(PAGE_W - EDITOR_BUTTON_W, 0)
+                .size(EDITOR_BUTTON_W, ROW_H)
+                .overlay(
+                    IKey.lang("warpcovers.gui.manager.back")
+                        .color(BUTTON_TEXT));
+            back.onMousePressed(mouse -> {
+                send("ep_clear", buf -> {});
+                closeEditor.run();
+                return true;
+            });
+            page.child(back);
+
+            int stateW = (PAGE_W - EDITOR_BUTTON_W - 2) / STATES.length;
+            for (int i = 0; i < STATES.length; i++) {
+                InteractionState state = STATES[i];
+                ButtonWidget<?> button = new ButtonWidget<>();
+                button.pos(i * stateW, 15)
+                    .size(stateW - 1, ROW_H)
+                    .background(new DynamicDrawable(() -> {
+                        PanelSnapshot.EndpointRow row = selectedRow();
+                        return row != null && row.state == state ? GTGuiTextures.BUTTON_STANDARD_PRESSED
+                            : GTGuiTextures.BUTTON_STANDARD;
+                    }))
+                    .overlay(
+                        IKey.lang(WarpCoverItem.stateKey(state))
+                            .color(BUTTON_TEXT))
+                    .addTooltipLine(tr("warpcovers.gui.state_tip." + lower(state.name())));
+                button.onMousePressed(mouse -> {
+                    send("state", buf -> NetworkUtils.writeStringSafe(buf, state.name()));
+                    return true;
+                });
+                page.child(button);
+            }
+            ButtonWidget<?> disconnect = new ButtonWidget<>();
+            disconnect.pos(PAGE_W - EDITOR_BUTTON_W, 15)
+                .size(EDITOR_BUTTON_W, ROW_H)
+                .overlay(
+                    IKey.lang("warpcovers.gui.manager.disconnect")
+                        .color(BUTTON_TEXT))
+                .addTooltipLine(tr("warpcovers.gui.manager.disconnect_tip"));
+            disconnect.onMousePressed(mouse -> {
+                send("ep_disconnect", buf -> {});
+                closeEditor.run();
+                return true;
+            });
+            page.child(disconnect);
+
+            ParentWidget<?> settings = new ParentWidget<>();
+            settings.pos(0, EDITOR_HEADER_H)
+                .size(PAGE_W, settingsH);
+            settings.child(settingsPage());
+            page.child(settings);
+            return page;
+        }
+
         // ---- 名单快捷配置弹窗 ----
 
         private void openQuickDialog(IWidget anchor) {
@@ -1616,8 +1938,10 @@ public final class WarpCoverGui extends CoverBaseGui<BaseWarpCover> {
             addQuickTab(dialog, 8, false);
             addQuickTab(dialog, 87, true);
 
-            // 图标有深有浅，按下效果的底色不够醒目，选中用亮绿底
+            // 选中用亮绿底加绿框：流体图标铺满整格会盖住底色，所以框要画在图标上面
             IDrawable selectedMark = new Rectangle().color(0xFF40D040);
+            IDrawable selectedFrame = new Rectangle().color(0xFF40FF40)
+                .hollow(2);
             int gridX = (172 - QUICK_COLUMNS * QUICK_CELL) / 2;
             for (int i = 0; i < QUICK_COLUMNS * QUICK_ROWS; i++) {
                 int slot = i;
@@ -1632,6 +1956,9 @@ public final class WarpCoverGui extends CoverBaseGui<BaseWarpCover> {
                     .overlay(new DynamicDrawable(() -> {
                         String key = quickKeyAt(slot);
                         return key == null ? IDrawable.EMPTY : objectIcons.computeIfAbsent(key, this::objectIcon);
+                    }), new DynamicDrawable(() -> {
+                        String key = quickKeyAt(slot);
+                        return key != null && quickSelected.contains(key) ? selectedFrame : IDrawable.EMPTY;
                     }))
                     .tooltipDynamic(tooltip -> {
                         String key = quickKeyAt(slot);
@@ -1840,6 +2167,9 @@ public final class WarpCoverGui extends CoverBaseGui<BaseWarpCover> {
         }
 
         private String statusLine() {
+            if (manager && selectedRow() == null) {
+                return tr("warpcovers.gui.manager.hint");
+            }
             PanelSnapshot.StatusView view = statusView();
             return tr("warpcovers.gui.status", tr("warpcovers.status." + view.status.key()));
         }
@@ -1888,7 +2218,7 @@ public final class WarpCoverGui extends CoverBaseGui<BaseWarpCover> {
         }
 
         private boolean isItem() {
-            return part.channelType() == ChannelType.ITEM;
+            return type == ChannelType.ITEM;
         }
     }
 

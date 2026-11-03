@@ -37,7 +37,7 @@ public final class SelfCheckRunner {
         try {
             scenario.setup();
             markSetUp(name);
-        } catch (Exception e) {
+        } catch (Exception | LinkageError e) {
             return record("setup", name, SelfCheckResult.fail("布置失败: " + describe(e)));
         }
         return record("setup", name, SelfCheckResult.pass(""));
@@ -54,7 +54,7 @@ public final class SelfCheckRunner {
         SelfCheckResult result;
         try {
             result = scenario.verify();
-        } catch (Exception e) {
+        } catch (Exception | LinkageError e) {
             result = SelfCheckResult.fail("校验异常: " + describe(e));
         }
         return record("verify", name, result);
@@ -101,7 +101,7 @@ public final class SelfCheckRunner {
     }
 
     /** 异常加上最前面几层调用栈，日志只有一行 [RESULT]，没有栈就很难定位。 */
-    static String describe(Exception e) {
+    static String describe(Throwable e) {
         StringBuilder text = new StringBuilder(String.valueOf(e));
         StackTraceElement[] frames = e.getStackTrace();
         for (int i = 0; i < Math.min(8, frames.length); i++) {

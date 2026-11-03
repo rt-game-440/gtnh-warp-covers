@@ -1,5 +1,6 @@
 # 开发记忆
 
+- 2026-11-03 18:47 服务端不能 `new UISettings()`：构造时会加载仅客户端的类，抛 `NoClassDefFoundError`。自检构建物品界面时传 null（`buildUI` 用不到）。流体图标铺满整格，选中态只改底色看不出来，要在图标上面画框。
 - 2026-11-03 17:55 ModularUI2 陷阱：`addUIWidgets` 构建时 `PanelSyncManager.getPlayer()` 会 NPE（同步管理器还没绑定容器），要用 `CoverGuiData.getPlayer()`。这个问题让 #8 起所有覆盖板界面一打开就崩，而 JUnit 和自检都发现不了，因为之前从未构建过界面；现在 `aggregate_cover` 场景会在服务端构建一次。按钮文字默认颜色在 GT 中灰底上几乎看不清，要 `.color(0xFFFFFFFF)`。
 - 2026-11-03 17:55 操作开发客户端：LWJGL 按扫描码读键盘，windows-mcp 的 Shortcut、Type 发的键收不到，要用 `scripts/client-input.ps1`；中文输入法开启时按键也进不去，要先切到英文（按一次 shift）。不要用带 loc 的 Type：聊天框没开时那一下点击会挖掉准星对着的方块。MUI 按钮要先移动鼠标、等一帧再点。自检方块在 Y=200 悬空，玩家要站在 `/setblock` 放的平台上，离太远界面会被立刻关掉。点窗口的关闭按钮关不掉客户端，要结束进程（先 `/save-all`）；注意别碰标题是 `GT: New Horizons` 的用户实例。
 - 2026-11-03 16:44 ServerUtilities 身份适配（`gt/ServerUtilitiesIdentity`）：`ForgeTeam.setStatus`（管理员、盟友变化）不发事件，靠 `WarpEvents` 每 20 tick 复查；退队事件在状态改完之前发出，所以事件里只设标记，到 tick END 再复查。`Universe.loaded()` 在 `FMLServerAboutToStart` 就为 true，队伍数据到 `onServerStarted` 才加载，所以不能在 tick 之前做失权判定。自检造假玩家要自己设 `player.team`，入队用 `forceAddMember`（`addMember` 要求已被邀请）。归属者为空串的频道（自检直接建的）所有人都算管理者，所以旧场景不受权限影响。

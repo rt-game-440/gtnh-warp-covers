@@ -502,6 +502,20 @@ public final class ChannelHub {
         }
     }
 
+    /** 连接端被管理器远程改了配置：操作者成为新的连接者，并通知覆盖板存盘、同步外观。 */
+    public void remoteConfigChanged(String endpointId, String operator) {
+        Endpoint endpoint = endpoints.get(endpointId);
+        if (endpoint == null) {
+            return;
+        }
+        endpoint.setConnector(operator);
+        markDirty();
+        EndpointHost host = endpoint.host();
+        if (host != null) {
+            host.onEndpointChanged();
+        }
+    }
+
     /**
      * 覆盖板加载（或从物品贴上）时与索引对账。
      *

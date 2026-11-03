@@ -8,7 +8,9 @@ public enum DisconnectReason {
     /** 连接者失去「连接」权限。 */
     PERMISSION_LOST("permission_lost"),
     /** 贴上带配置的覆盖板时，贴者没有该频道的「连接」权限。 */
-    NO_PERMISSION("no_permission");
+    NO_PERMISSION("no_permission"),
+    /** 有权限的玩家用折跃频道管理器远程断开。 */
+    REMOTE("remote");
 
     private final String key;
 

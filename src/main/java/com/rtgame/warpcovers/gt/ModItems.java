@@ -20,6 +20,7 @@ public final class ModItems {
     public static Item itemCover;
     public static Item energyCover;
     public static Item aggregateCover;
+    public static Item manager;
 
     public static final CreativeTabs TAB = new CreativeTabs(WarpCovers.MODID) {
 
@@ -34,6 +35,12 @@ public final class ModItems {
     /** 注册物品并把它登记为 GT 覆盖板。必须在 GT 完成预加载之后（init 阶段）调用。 */
     public static void register() {
         CoverMarkTextures.register();
+
+        manager = new WarpManagerItem();
+        manager.setUnlocalizedName(WarpCovers.MODID + ".manager");
+        manager.setTextureName(WarpCovers.MODID + ":warp_manager");
+        manager.setCreativeTab(TAB);
+        GameRegistry.registerItem(manager, "warp_manager");
 
         fluidCover = new WarpCoverItem();
         fluidCover.setUnlocalizedName(WarpCovers.MODID + ".cover.fluid");

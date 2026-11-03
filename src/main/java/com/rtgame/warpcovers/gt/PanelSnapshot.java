@@ -17,14 +17,17 @@ import com.rtgame.warpcovers.core.CoverPanel;
 import com.rtgame.warpcovers.core.CreateFailure;
 import com.rtgame.warpcovers.core.DisconnectReason;
 import com.rtgame.warpcovers.core.DistributionMode;
+import com.rtgame.warpcovers.core.Endpoint;
 import com.rtgame.warpcovers.core.EndpointConfig;
 import com.rtgame.warpcovers.core.EndpointStatus;
 import com.rtgame.warpcovers.core.FilterCandidates;
 import com.rtgame.warpcovers.core.FilterList;
 import com.rtgame.warpcovers.core.Identity;
 import com.rtgame.warpcovers.core.InteractionState;
+import com.rtgame.warpcovers.core.Location;
 import com.rtgame.warpcovers.core.PanelNotice;
 import com.rtgame.warpcovers.core.Permission;
+import com.rtgame.warpcovers.core.RemoteEndpoint;
 import com.rtgame.warpcovers.core.Viewer;
 
 /**
@@ -153,6 +156,65 @@ public final class PanelSnapshot {
         }
         root.setTag("keys", keys);
         return root;
+    }
+
+    /** 管理器：一个频道的全部连接端。 */
+    public static NBTTagCompound endpoints(CoverPanel panel, Viewer viewer, String channelId) {
+        NBTTagCompound root = new NBTTagCompound();
+        root.setString("ch", channelId);
+        NBTTagList rows = new NBTTagList();
+        for (Endpoint endpoint : panel.admin()
+            .endpointsOf(viewer, channelId)) {
+            Channel channel = panel.hub()
+                .findChannel(endpoint.channelId());
+            rows.appendTag(
+                endpointRow(
+                    endpoint,
+                    endpoint.isLoaded() && panel.hub()
+                        .hasPermission(viewer.playerId(), channel, Permission.CONNECT)));
+        }
+        root.setTag("rows", rows);
+        return root;
+    }
+
+    /** 管理器：正在远程修改的连接端；没有选中时为空。 */
+    public static NBTTagCompound selected(RemoteEndpoint remote) {
+        Endpoint endpoint = remote.selected();
+        return endpoint == null ? new NBTTagCompound() : endpointRow(endpoint, remote.isEditable());
+    }
+
+    private static NBTTagCompound endpointRow(Endpoint endpoint, boolean editable) {
+        NBTTagCompound tag = new NBTTagCompound();
+        Location location = endpoint.location();
+        tag.setString("id", endpoint.endpointId());
+        tag.setInteger("dim", location.dimension());
+        tag.setInteger("x", location.x());
+        tag.setInteger("y", location.y());
+        tag.setInteger("z", location.z());
+        tag.setString("mn", endpoint.machineName());
+        tag.setString(
+            "st",
+            endpoint.state()
+                .name());
+        tag.setBoolean("ld", endpoint.isLoaded());
+        tag.setBoolean("ed", editable);
+        return tag;
+    }
+
+    /** @return 没有选中时为 null */
+    public static EndpointRow parseSelected(NBTTagCompound root) {
+        return root == null || !root.hasKey("id") ? null : new EndpointRow(root);
+    }
+
+    public static List<EndpointRow> parseEndpoints(NBTTagCompound root, String channelId) {
+        List<EndpointRow> rows = new ArrayList<EndpointRow>();
+        if (root != null && channelId.equals(root.getString("ch"))) {
+            NBTTagList list = root.getTagList("rows", TAG_COMPOUND);
+            for (int i = 0; i < list.tagCount(); i++) {
+                rows.add(new EndpointRow(list.getCompoundTagAt(i)));
+            }
+        }
+        return rows;
     }
 
     /** 快捷配置的候选。 */
@@ -395,6 +457,31 @@ public final class PanelSnapshot {
                 }
             }
             return null;
+        }
+    }
+
+    public static final class EndpointRow {
+
+        public final String id;
+        public final int dimension;
+        public final int x;
+        public final int y;
+        public final int z;
+        public final String machineName;
+        public final InteractionState state;
+        public final boolean loaded;
+        public final boolean editable;
+
+        EndpointRow(NBTTagCompound tag) {
+            id = tag.getString("id");
+            dimension = tag.getInteger("dim");
+            x = tag.getInteger("x");
+            y = tag.getInteger("y");
+            z = tag.getInteger("z");
+            machineName = tag.getString("mn");
+            state = readState(tag.getString("st"));
+            loaded = tag.getBoolean("ld");
+            editable = tag.getBoolean("ed");
         }
     }
 

@@ -1,5 +1,10 @@
 package com.rtgame.warpcovers.core;
 
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.List;
+
 /**
  * 频道配置面板的服务端逻辑：改名、备注、颜色、分发方式、权限、删除，每项都先查操作者的权限。
  * 与覆盖板无关，手持终端也用它。结果以 {@link PanelNotice} 返回，界面据此显示反馈。
@@ -12,6 +17,23 @@ public final class ChannelAdmin {
 
     public ChannelAdmin(ChannelHub hub) {
         this.hub = hub;
+    }
+
+    /** 频道的全部连接端，按连接顺序；操作者看不到这个频道时为空。 */
+    public List<Endpoint> endpointsOf(Viewer viewer, String channelId) {
+        Channel channel = hub.findChannel(channelId);
+        if (channel == null || !hub.hasPermission(viewer.playerId(), channel, Permission.VIEW)) {
+            return Collections.emptyList();
+        }
+        List<Endpoint> rows = new ArrayList<Endpoint>(channel.endpoints());
+        Collections.sort(rows, new Comparator<Endpoint>() {
+
+            @Override
+            public int compare(Endpoint a, Endpoint b) {
+                return Long.compare(a.connectOrder(), b.connectOrder());
+            }
+        });
+        return rows;
     }
 
     public PanelNotice rename(Viewer viewer, String channelId, String rawName) {
