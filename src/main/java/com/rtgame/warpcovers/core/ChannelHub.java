@@ -626,12 +626,21 @@ public final class ChannelHub {
     /** 恢复一条索引；频道不存在时丢弃。调用前须先恢复频道。 */
     public void restoreEndpoint(String endpointId, String channelId, long connectOrder, Location location,
         String connector, String machineName, InteractionState state) {
+        EndpointConfig restored = new EndpointConfig();
+        restored.setState(state);
+        restoreEndpoint(endpointId, channelId, connectOrder, location, connector, machineName, restored);
+    }
+
+    /**
+     * 恢复一条索引，带上保存时的配置副本。覆盖板是配置的权威，加载时会用自己的配置替换；
+     * 在那之前这份副本让别的连接端也能读到未加载连接端的名单。
+     */
+    public void restoreEndpoint(String endpointId, String channelId, long connectOrder, Location location,
+        String connector, String machineName, EndpointConfig restored) {
         Channel channel = channels.get(channelId);
         if (channel == null) {
             return;
         }
-        EndpointConfig restored = new EndpointConfig();
-        restored.setState(state);
         Endpoint endpoint = new Endpoint(endpointId, channelId, connectOrder, location, connector, restored);
         endpoint.setMachineName(machineName);
         endpoints.put(endpointId, endpoint);

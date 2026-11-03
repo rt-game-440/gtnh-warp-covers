@@ -1,6 +1,7 @@
 package com.rtgame.warpcovers.core;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
@@ -23,6 +24,9 @@ public final class CoverPanel {
                     .compareTo(b.id());
         }
     };
+
+    /** 每个来源最多列出的候选数，防止物品极多的机器撑大同步数据。 */
+    public static final int MAX_FILTER_CANDIDATES = 256;
 
     private final ChannelHub hub;
     private final ChannelType type;
@@ -265,6 +269,93 @@ public final class CoverPanel {
             filter.setMatchNbt(matchNbt);
             endpoint.configChanged();
         }
+    }
+
+    /**
+     * 快捷配置的候选：对端白名单和本机存储，都去掉名单已覆盖的。对端按本端状态取相反状态的连接端，
+     * 本端是「空」或未连接时没有对端来源；对端是黑名单时名单内容是「不要」的物体，不算候选。
+     */
+    public FilterCandidates filterCandidates() {
+        if (!type.hasFilter()) {
+            return FilterCandidates.NONE;
+        }
+        FilterList filter = endpoint.config()
+            .filter();
+        TreeSet<String> peerKeys = new TreeSet<String>();
+        InteractionState wanted = oppositeOf(
+            endpoint.config()
+                .state());
+        String channelId = endpoint.channelId();
+        if (wanted != null && !channelId.isEmpty()) {
+            for (Endpoint peer : hub.endpoints()) {
+                if (peer.channelId()
+                    .equals(channelId)
+                    && !peer.endpointId()
+                        .equals(endpoint.endpointId())
+                    && peer.state() == wanted
+                    && peer.filter()
+                        .isWhitelist()) {
+                    peerKeys.addAll(
+                        peer.filter()
+                            .keys());
+                }
+            }
+        }
+        List<String> storedKeys = new ArrayList<String>();
+        for (ObjectStack stack : endpoint.storedObjects()) {
+            storedKeys.add(stack.key());
+        }
+        return new FilterCandidates(uncovered(peerKeys, filter), uncovered(storedKeys, filter));
+    }
+
+    private static InteractionState oppositeOf(InteractionState state) {
+        switch (state) {
+            case INPUT:
+                return InteractionState.OUTPUT;
+            case OUTPUT:
+                return InteractionState.INPUT;
+            default:
+                return null;
+        }
+    }
+
+    /** 去掉名单已覆盖的和彼此重复的（按名单的匹配方式判断）；超过上限的部分丢弃。 */
+    private static List<String> uncovered(Iterable<String> keys, FilterList filter) {
+        FilterList seen = new FilterList();
+        seen.setMatchNbt(filter.matchNbt());
+        List<String> result = new ArrayList<String>();
+        for (String key : keys) {
+            if (result.size() >= MAX_FILTER_CANDIDATES) {
+                break;
+            }
+            if (!filter.contains(key) && !seen.contains(key)) {
+                seen.add(key);
+                result.add(key);
+            }
+        }
+        return result;
+    }
+
+    /** 一次往名单里加多种物体，已被名单覆盖的跳过。 @return 实际加入的数量 */
+    public int addFilterKeys(Collection<String> keys) {
+        if (!type.hasFilter()) {
+            return 0;
+        }
+        FilterList filter = endpoint.config()
+            .filter();
+        int added = 0;
+        for (String key : keys) {
+            if (key != null && !key.isEmpty() && !filter.contains(key) && filter.add(key)) {
+                added++;
+            }
+        }
+        if (added > 0) {
+            endpoint.configChanged();
+            report(PanelNotice.info("filter_added", Integer.toString(added)));
+        } else {
+            report(PanelNotice.info("filter_added_none", ""));
+        }
+        return added;
     }
 
     /** 往名单里加一种物体；已在名单里时返回 false。 */

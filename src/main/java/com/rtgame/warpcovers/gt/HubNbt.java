@@ -20,6 +20,7 @@ import com.rtgame.warpcovers.core.ChannelType;
 import com.rtgame.warpcovers.core.DisconnectReason;
 import com.rtgame.warpcovers.core.DistributionMode;
 import com.rtgame.warpcovers.core.Endpoint;
+import com.rtgame.warpcovers.core.EndpointConfig;
 import com.rtgame.warpcovers.core.Tombstone;
 
 /** 频道表、连接端索引与墓碑的存档格式。带版本号，以后格式变化时据此迁移。 */
@@ -117,6 +118,9 @@ public final class HubNbt {
                 "st",
                 endpoint.state()
                     .name());
+            NBTTagCompound configTag = new NBTTagCompound();
+            ConfigNbt.write(endpoint.config(), configTag);
+            tag.setTag("cfg", configTag);
             endpoints.appendTag(tag);
         }
         root.setTag("endpoints", endpoints);
@@ -191,6 +195,12 @@ public final class HubNbt {
         NBTTagList endpoints = root.getTagList("endpoints", TAG_COMPOUND);
         for (int i = 0; i < endpoints.tagCount(); i++) {
             NBTTagCompound tag = endpoints.getCompoundTagAt(i);
+            EndpointConfig config = new EndpointConfig();
+            if (tag.hasKey("cfg")) {
+                ConfigNbt.read(tag.getCompoundTag("cfg"), config);
+            }
+            // 交互状态以 st 为准；旧存档没有 cfg 时也只有它
+            config.setState(ConfigNbt.readState(tag.getString("st")));
             hub.restoreEndpoint(
                 tag.getString("id"),
                 tag.getString("ch"),
@@ -198,7 +208,7 @@ public final class HubNbt {
                 ConfigNbt.readLocation(tag.getCompoundTag("loc")),
                 tag.getString("con"),
                 tag.getString("mn"),
-                ConfigNbt.readState(tag.getString("st")));
+                config);
         }
         NBTTagList tombstones = root.getTagList("tombstones", TAG_COMPOUND);
         for (int i = 0; i < tombstones.tagCount(); i++) {

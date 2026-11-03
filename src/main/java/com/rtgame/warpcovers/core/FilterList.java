@@ -60,7 +60,8 @@ public final class FilterList {
         return whitelist == contains(key);
     }
 
-    private boolean contains(String key) {
+    /** 该物体是否已被名单覆盖：不匹配 NBT 时，只差 NBT 的物体算同一种。 */
+    public boolean contains(String key) {
         if (matchNbt) {
             return keys.contains(key);
         }

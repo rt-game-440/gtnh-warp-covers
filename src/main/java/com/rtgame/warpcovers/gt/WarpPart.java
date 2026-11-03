@@ -1,5 +1,7 @@
 package com.rtgame.warpcovers.gt;
 
+import java.util.Collections;
+import java.util.List;
 import java.util.Locale;
 
 import net.minecraft.server.MinecraftServer;
@@ -14,6 +16,7 @@ import com.rtgame.warpcovers.core.EndpointConfig;
 import com.rtgame.warpcovers.core.EndpointStatus;
 import com.rtgame.warpcovers.core.InteractionState;
 import com.rtgame.warpcovers.core.MachinePort;
+import com.rtgame.warpcovers.core.ObjectStack;
 import com.rtgame.warpcovers.core.PanelEndpoint;
 
 import gregtech.api.interfaces.tileentity.ICoverable;
@@ -117,6 +120,16 @@ public final class WarpPart implements PanelEndpoint {
 
     public void setInteractionState(InteractionState state) {
         endpoint.setState(state);
+    }
+
+    @Override
+    public List<ObjectStack> storedObjects() {
+        ICoverable tile = cover.getTile();
+        if (tile == null) {
+            return Collections.emptyList();
+        }
+        MachinePort port = createPort(tile, cover.getSide());
+        return port == null ? Collections.<ObjectStack>emptyList() : port.extractable();
     }
 
     /** 能量部分贴在没有内部储能的方块（导线、管道、储罐等）上时不工作；聚合覆盖板才会遇到。 */

@@ -2,9 +2,11 @@ package com.rtgame.warpcovers.gt;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
+import java.util.Set;
 import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 import java.util.function.Function;
@@ -64,6 +66,7 @@ import com.rtgame.warpcovers.core.ChannelType;
 import com.rtgame.warpcovers.core.CoverPanel;
 import com.rtgame.warpcovers.core.CreateFailure;
 import com.rtgame.warpcovers.core.DistributionMode;
+import com.rtgame.warpcovers.core.FilterCandidates;
 import com.rtgame.warpcovers.core.Identity;
 import com.rtgame.warpcovers.core.InteractionState;
 import com.rtgame.warpcovers.core.NumberInput;
@@ -97,6 +100,12 @@ public final class WarpCoverGui extends CoverBaseGui<BaseWarpCover> {
     private static final int FIELD_GAP = 3;
     private static final int FILTER_Y = 25;
     private static final int LIST_Y = FILTER_Y + 42;
+    private static final int QUICK_BUTTON_W = 34;
+    private static final int QUICK_COLUMNS = 8;
+    private static final int QUICK_ROWS = 4;
+    private static final int QUICK_CELL = 18;
+    private static final int QUICK_PAGE_SIZE = QUICK_COLUMNS * QUICK_ROWS;
+    private static final int QUICK_GRID_Y = 36;
 
     private static final int TEXT_COLOR = 0xFF202020;
     private static final int OWNER_COLOR = 0xFF484860;
@@ -314,6 +323,15 @@ public final class WarpCoverGui extends CoverBaseGui<BaseWarpCover> {
         private IPanelHandler configDialog;
         private IPanelHandler deleteDialog;
         private IPanelHandler tagDialog;
+        private IPanelHandler quickDialog;
+        /** 服务端最近一次汇总的候选；打开弹窗时才刷新。 */
+        private NBTTagCompound quickSnapshot = new NBTTagCompound();
+        private final NbtValue quickValue;
+        private NBTTagCompound quickRaw;
+        private FilterCandidates quickParsed = FilterCandidates.NONE;
+        private final Set<String> quickSelected = new HashSet<>();
+        private boolean quickFromStored;
+        private int quickPage;
         /** 物体图标缓存：图标每帧读取。 */
         private final Map<String, IDrawable> objectIcons = new HashMap<>();
         /** 配置面板正在编辑的频道。 */
@@ -353,6 +371,8 @@ public final class WarpCoverGui extends CoverBaseGui<BaseWarpCover> {
                             .getTickCounter()));
             sync.syncValue(syncPrefix + "channels", channels);
             sync.syncValue(syncPrefix + "filter", filter);
+            quickValue = new NbtValue(() -> quickSnapshot);
+            sync.syncValue(syncPrefix + "quick", quickValue);
             sync.syncValue(syncPrefix + "status", status);
             priority = new LongSyncValue(
                 () -> client ? 0
@@ -405,6 +425,15 @@ public final class WarpCoverGui extends CoverBaseGui<BaseWarpCover> {
             action("matchnbt", buf -> panel.setMatchNbt(buf.readBoolean()));
             action("remove", buf -> panel.removeFilterKey(NetworkUtils.readStringSafe(buf)));
             action("clear", buf -> panel.clearFilter());
+            action("quick_refresh", buf -> quickSnapshot = PanelSnapshot.candidates(panel.filterCandidates()));
+            action("quick_add", buf -> {
+                int count = buf.readInt();
+                List<String> keys = new ArrayList<>();
+                for (int i = 0; i < count; i++) {
+                    keys.add(NetworkUtils.readStringSafe(buf));
+                }
+                panel.addFilterKeys(keys);
+            });
             registerConfigActions();
             action("search", buf -> panel.setSearch(NetworkUtils.readStringSafe(buf)));
             action("tagfilter", buf -> panel.setTagFilter(NetworkUtils.readStringSafe(buf)));
@@ -1428,8 +1457,20 @@ public final class WarpCoverGui extends CoverBaseGui<BaseWarpCover> {
                 IKey.lang(isItem() ? "warpcovers.gui.filter.hint_item" : "warpcovers.gui.filter.hint")
                     .asWidget()
                     .pos(22, FILTER_Y + 25)
-                    .size(PAGE_W - 24, 9)
+                    .size(PAGE_W - 24 - QUICK_BUTTON_W, 9)
                     .color(OWNER_COLOR));
+            ButtonWidget<?> quick = new ButtonWidget<>();
+            quick.pos(PAGE_W - QUICK_BUTTON_W - 2, FILTER_Y + 20)
+                .size(QUICK_BUTTON_W, 16)
+                .overlay(
+                    IKey.lang("warpcovers.gui.quick.open")
+                        .color(BUTTON_TEXT))
+                .addTooltipLine(tr("warpcovers.gui.quick.open_tip"));
+            quick.onMousePressed(mouse -> {
+                openQuickDialog(quick);
+                return true;
+            });
+            page.child(quick);
 
             DynamicLinkedSyncHandler<NbtValue> dynamic = new DynamicLinkedSyncHandler<>(filter)
                 .widgetProvider((manager, value) -> filterList(PanelSnapshot.parseFilter(value.getValue())));
@@ -1500,6 +1541,233 @@ public final class WarpCoverGui extends CoverBaseGui<BaseWarpCover> {
 
         private String periodTooltip() {
             return tr("warpcovers.gui.field.period_tip", effectivePeriod.getLongValue());
+        }
+
+        // ---- 名单快捷配置弹窗 ----
+
+        private void openQuickDialog(IWidget anchor) {
+            if (quickDialog == null) {
+                quickDialog = IPanelHandler.simple(anchor.getPanel(), (main, player) -> quickPanel(), true);
+            }
+            if (quickDialog.isPanelOpen()) {
+                return;
+            }
+            // 候选只在打开时汇总一次：既不用每 tick 扫描机器，勾选途中列表也不会跳动
+            send("quick_refresh", buf -> {});
+            quickSelected.clear();
+            quickFromStored = false;
+            quickPage = 0;
+            quickDialog.deleteCachedPanel();
+            quickDialog.openPanel();
+        }
+
+        private FilterCandidates quickCandidates() {
+            NBTTagCompound raw = quickValue.getValue();
+            if (raw != quickRaw) {
+                quickRaw = raw;
+                quickParsed = PanelSnapshot.parseCandidates(raw);
+            }
+            return quickParsed;
+        }
+
+        private List<String> quickKeys() {
+            FilterCandidates candidates = quickCandidates();
+            return quickFromStored ? candidates.stored() : candidates.peers();
+        }
+
+        private int quickPageCount() {
+            return Math.max(1, (quickKeys().size() + QUICK_PAGE_SIZE - 1) / QUICK_PAGE_SIZE);
+        }
+
+        /** 第 slot 个格子当前显示的物体键；没有时为 null。 */
+        private String quickKeyAt(int slot) {
+            List<String> keys = quickKeys();
+            int page = Math.min(quickPage, quickPageCount() - 1);
+            int index = page * QUICK_PAGE_SIZE + slot;
+            return index < keys.size() ? keys.get(index) : null;
+        }
+
+        /** 勾选项里仍是候选的：重新汇总后可能有变化。 */
+        private List<String> quickChosen() {
+            FilterCandidates candidates = quickCandidates();
+            List<String> chosen = new ArrayList<>();
+            for (String key : quickSelected) {
+                if (candidates.peers()
+                    .contains(key)
+                    || candidates.stored()
+                        .contains(key)) {
+                    chosen.add(key);
+                }
+            }
+            return chosen;
+        }
+
+        private Dialog<Boolean> quickPanel() {
+            Dialog<Boolean> dialog = new Dialog<>(syncPrefix + "filter_quick");
+            dialog.setDraggable(false);
+            dialog.setCloseOnOutOfBoundsClick(true);
+            dialog.size(172, QUICK_GRID_Y + QUICK_ROWS * QUICK_CELL + 44);
+            dialog.child(
+                IKey.lang("warpcovers.gui.quick.title")
+                    .asWidget()
+                    .pos(8, 7)
+                    .size(156, 9)
+                    .color(0xFF222222));
+            addQuickTab(dialog, 8, false);
+            addQuickTab(dialog, 87, true);
+
+            // 图标有深有浅，按下效果的底色不够醒目，选中用亮绿底
+            IDrawable selectedMark = new Rectangle().color(0xFF40D040);
+            int gridX = (172 - QUICK_COLUMNS * QUICK_CELL) / 2;
+            for (int i = 0; i < QUICK_COLUMNS * QUICK_ROWS; i++) {
+                int slot = i;
+                ButtonWidget<?> cell = new ButtonWidget<>();
+                cell.pos(gridX + (i % QUICK_COLUMNS) * QUICK_CELL, QUICK_GRID_Y + (i / QUICK_COLUMNS) * QUICK_CELL)
+                    .size(QUICK_CELL, QUICK_CELL)
+                    .background(new DynamicDrawable(() -> {
+                        String key = quickKeyAt(slot);
+                        return key != null && quickSelected.contains(key) ? selectedMark
+                            : GTGuiTextures.BUTTON_STANDARD;
+                    }))
+                    .overlay(new DynamicDrawable(() -> {
+                        String key = quickKeyAt(slot);
+                        return key == null ? IDrawable.EMPTY : objectIcons.computeIfAbsent(key, this::objectIcon);
+                    }))
+                    .tooltipDynamic(tooltip -> {
+                        String key = quickKeyAt(slot);
+                        if (key != null) {
+                            tooltip.addLine(objectLabel(key));
+                        }
+                    })
+                    .tooltipAutoUpdate(true)
+                    .setEnabledIf(w -> quickKeyAt(slot) != null);
+                cell.onMousePressed(mouse -> {
+                    String key = quickKeyAt(slot);
+                    if (key != null && !quickSelected.remove(key)) {
+                        quickSelected.add(key);
+                    }
+                    return true;
+                });
+                dialog.child(cell);
+            }
+            dialog.child(
+                IKey.dynamic(this::quickEmptyHint)
+                    .asWidget()
+                    .pos(8, QUICK_GRID_Y + 4)
+                    .size(156, 40)
+                    .color(OWNER_COLOR));
+
+            int barY = QUICK_GRID_Y + QUICK_ROWS * QUICK_CELL + 3;
+            ButtonWidget<?> previous = new ButtonWidget<>();
+            previous.pos(8, barY)
+                .size(14, 14)
+                .overlay(
+                    IKey.str("<")
+                        .color(BUTTON_TEXT));
+            previous.onMousePressed(mouse -> {
+                quickPage = Math.max(0, Math.min(quickPage, quickPageCount() - 1) - 1);
+                return true;
+            });
+            dialog.child(previous);
+            dialog.child(
+                IKey.dynamic(() -> (Math.min(quickPage, quickPageCount() - 1) + 1) + "/" + quickPageCount())
+                    .asWidget()
+                    .alignment(Alignment.Center)
+                    .pos(23, barY + 3)
+                    .size(30, 9)
+                    .color(TEXT_COLOR));
+            ButtonWidget<?> next = new ButtonWidget<>();
+            next.pos(54, barY)
+                .size(14, 14)
+                .overlay(
+                    IKey.str(">")
+                        .color(BUTTON_TEXT));
+            next.onMousePressed(mouse -> {
+                quickPage = Math.min(quickPageCount() - 1, quickPage + 1);
+                return true;
+            });
+            dialog.child(next);
+            ButtonWidget<?> all = new ButtonWidget<>();
+            all.pos(88, barY)
+                .size(76, 14)
+                .overlay(
+                    IKey.lang("warpcovers.gui.quick.select_all")
+                        .color(BUTTON_TEXT))
+                .addTooltipLine(tr("warpcovers.gui.quick.select_all_tip"));
+            all.onMousePressed(mouse -> {
+                List<String> keys = quickKeys();
+                if (quickSelected.containsAll(keys)) {
+                    quickSelected.removeAll(keys);
+                } else {
+                    quickSelected.addAll(keys);
+                }
+                return true;
+            });
+            dialog.child(all);
+
+            ButtonWidget<?> confirm = new ButtonWidget<>();
+            confirm.pos(8, barY + 18)
+                .size(76, 14)
+                .overlay(
+                    IKey.dynamic(() -> tr("warpcovers.gui.quick.confirm", quickChosen().size()))
+                        .color(BUTTON_TEXT));
+            confirm.onMousePressed(mouse -> {
+                List<String> chosen = quickChosen();
+                if (!chosen.isEmpty()) {
+                    send("quick_add", buf -> {
+                        buf.writeInt(chosen.size());
+                        for (String key : chosen) {
+                            NetworkUtils.writeStringSafe(buf, key);
+                        }
+                    });
+                }
+                dialog.closeWith(true);
+                return true;
+            });
+            dialog.child(confirm);
+            ButtonWidget<?> cancel = new ButtonWidget<>();
+            cancel.pos(88, barY + 18)
+                .size(76, 14)
+                .overlay(
+                    IKey.lang("warpcovers.gui.dialog.cancel")
+                        .color(BUTTON_TEXT));
+            cancel.onMousePressed(mouse -> {
+                dialog.closeWith(false);
+                return true;
+            });
+            dialog.child(cancel);
+            return dialog;
+        }
+
+        private void addQuickTab(Dialog<Boolean> dialog, int x, boolean stored) {
+            ButtonWidget<?> tab = new ButtonWidget<>();
+            tab.pos(x, 18)
+                .size(77, 14)
+                .background(
+                    new DynamicDrawable(
+                        () -> quickFromStored == stored ? GTGuiTextures.BUTTON_STANDARD_PRESSED
+                            : GTGuiTextures.BUTTON_STANDARD))
+                .overlay(IKey.dynamic(() -> {
+                    FilterCandidates candidates = quickCandidates();
+                    return tr(
+                        stored ? "warpcovers.gui.quick.stored" : "warpcovers.gui.quick.peers",
+                        (stored ? candidates.stored() : candidates.peers()).size());
+                })
+                    .color(BUTTON_TEXT))
+                .addTooltipLine(tr(stored ? "warpcovers.gui.quick.stored_tip" : "warpcovers.gui.quick.peers_tip"));
+            tab.onMousePressed(mouse -> {
+                quickFromStored = stored;
+                quickPage = 0;
+                return true;
+            });
+            dialog.child(tab);
+        }
+
+        private String quickEmptyHint() {
+            if (!quickKeys().isEmpty()) {
+                return "";
+            }
+            return tr(quickFromStored ? "warpcovers.gui.quick.stored_empty" : "warpcovers.gui.quick.peers_empty");
         }
 
         private IWidget filterList(PanelSnapshot.FilterView view) {

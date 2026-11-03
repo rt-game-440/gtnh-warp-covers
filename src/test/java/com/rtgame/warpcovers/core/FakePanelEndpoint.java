@@ -55,6 +55,11 @@ final class FakePanelEndpoint implements PanelEndpoint {
     }
 
     @Override
+    public java.util.List<ObjectStack> storedObjects() {
+        return machine.extractable();
+    }
+
+    @Override
     public void configChanged() {
         configChanges++;
         hub.configChanged(endpointId);

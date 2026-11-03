@@ -1,5 +1,8 @@
 package com.rtgame.warpcovers.core;
 
+import java.util.Collections;
+import java.util.List;
+
 /** 覆盖板界面操作的那个连接端（由覆盖板实现：连接、断开都要经过覆盖板，以保持覆盖板数据为配置权威）。 */
 public interface PanelEndpoint {
 
@@ -22,6 +25,11 @@ public interface PanelEndpoint {
 
     /** 配置在共享对象上改过之后调用（标脏、通知同步）。 */
     void configChanged();
+
+    /** 所贴机器现有、能取出的物体（模拟结果，不改变机器）。覆盖板未加载时为空。 */
+    default List<ObjectStack> storedObjects() {
+        return Collections.emptyList();
+    }
 
     /** 这个连接端因所贴方块的限制而不工作时返回原因；正常时为 null。 */
     default EndpointStatus blockedStatus() {

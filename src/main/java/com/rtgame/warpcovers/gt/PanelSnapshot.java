@@ -19,6 +19,7 @@ import com.rtgame.warpcovers.core.DisconnectReason;
 import com.rtgame.warpcovers.core.DistributionMode;
 import com.rtgame.warpcovers.core.EndpointConfig;
 import com.rtgame.warpcovers.core.EndpointStatus;
+import com.rtgame.warpcovers.core.FilterCandidates;
 import com.rtgame.warpcovers.core.FilterList;
 import com.rtgame.warpcovers.core.Identity;
 import com.rtgame.warpcovers.core.InteractionState;
@@ -152,6 +153,18 @@ public final class PanelSnapshot {
         }
         root.setTag("keys", keys);
         return root;
+    }
+
+    /** 快捷配置的候选。 */
+    public static NBTTagCompound candidates(FilterCandidates candidates) {
+        NBTTagCompound root = new NBTTagCompound();
+        root.setTag("peers", stringList(candidates.peers()));
+        root.setTag("stored", stringList(candidates.stored()));
+        return root;
+    }
+
+    public static FilterCandidates parseCandidates(NBTTagCompound root) {
+        return new FilterCandidates(readStrings(root, "peers"), readStrings(root, "stored"));
     }
 
     /** 状态栏：当前状态、最近断开原因、最近一次操作反馈。 */
