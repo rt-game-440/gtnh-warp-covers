@@ -67,6 +67,7 @@ import com.rtgame.warpcovers.core.ChannelType;
 import com.rtgame.warpcovers.core.CoverPanel;
 import com.rtgame.warpcovers.core.CreateFailure;
 import com.rtgame.warpcovers.core.DistributionMode;
+import com.rtgame.warpcovers.core.EndpointStatus;
 import com.rtgame.warpcovers.core.FilterCandidates;
 import com.rtgame.warpcovers.core.Identity;
 import com.rtgame.warpcovers.core.InteractionState;
@@ -207,13 +208,19 @@ public final class WarpCoverGui extends CoverBaseGui<BaseWarpCover> {
                                     .size(16),
                     "warpcovers.gui.tab.channels_" + parts.get(i)
                         .channelType()
-                        .key()).pos(0, i * (TAB_SIZE + 2)));
+                        .key(),
+                    sessions.get(i)::isServerDisabled).pos(0, i * (TAB_SIZE + 2)));
             pages.addPage(
                 sessions.get(i)
                     .channelsPage());
         }
         root.child(
-            tab(sessions.size(), controller, GTGuiTextures.OVERLAY_BUTTON_SCREWDRIVER, "warpcovers.gui.tab.settings")
+            tab(
+                sessions.size(),
+                controller,
+                GTGuiTextures.OVERLAY_BUTTON_SCREWDRIVER,
+                "warpcovers.gui.tab.settings",
+                () -> false)
                 .pos(0, sessions.size() * (TAB_SIZE + 2)));
 
         PagedWidget.Controller segments = new PagedWidget.Controller();
@@ -286,7 +293,8 @@ public final class WarpCoverGui extends CoverBaseGui<BaseWarpCover> {
                     controller,
                     new ItemDrawable(sectionIcon(types[i])).asIcon()
                         .size(16),
-                    "warpcovers.gui.tab.channels_" + types[i].key()).pos(0, i * (TAB_SIZE + 2)));
+                    "warpcovers.gui.tab.channels_" + types[i].key(),
+                    session::isServerDisabled).pos(0, i * (TAB_SIZE + 2)));
             pages.addPage(session.channelsPage());
         }
         for (Session session : sessions) {
@@ -333,13 +341,25 @@ public final class WarpCoverGui extends CoverBaseGui<BaseWarpCover> {
     }
 
     private PageButton tab(int index, PagedWidget.Controller controller, IDrawable icon, String tooltipKey) {
+        return tab(index, controller, icon, tooltipKey, () -> false);
+    }
+
+    private PageButton tab(int index, PagedWidget.Controller controller, IDrawable icon, String tooltipKey,
+        java.util.function.BooleanSupplier serverDisabled) {
+        IDrawable grey = new Rectangle().color(0xB0505050);
         PageButton button = new PageButton(index, controller);
         button.pos(0, 0)
             .size(TAB_SIZE, TAB_SIZE)
             .background(true, GTGuiTextures.BUTTON_STANDARD_PRESSED)
             .background(false, GTGuiTextures.BUTTON_STANDARD)
-            .overlay(icon)
-            .addTooltipLine(tr(tooltipKey));
+            .overlay(icon, new DynamicDrawable(() -> serverDisabled.getAsBoolean() ? grey : IDrawable.EMPTY))
+            .tooltipDynamic(tooltip -> {
+                tooltip.addLine(tr(tooltipKey));
+                if (serverDisabled.getAsBoolean()) {
+                    tooltip.addLine(tr("warpcovers.status.disabled"));
+                }
+            })
+            .tooltipAutoUpdate(true);
         return button;
     }
 
@@ -2215,6 +2235,11 @@ public final class WarpCoverGui extends CoverBaseGui<BaseWarpCover> {
                 y += heights[i] + 4;
             }
             return page;
+        }
+
+        /** 服务器是否关闭了本类型（来自状态快照，客户端也能读到）。 */
+        private boolean isServerDisabled() {
+            return statusView().status == EndpointStatus.DISABLED;
         }
 
         private boolean isItem() {

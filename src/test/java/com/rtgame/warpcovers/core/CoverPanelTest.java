@@ -66,6 +66,19 @@ class CoverPanelTest {
             "负数当作跟随默认");
     }
 
+    @Test
+    void 类型被服务器禁用时界面状态为已禁用且未连接也一样() {
+        FakeConfig config = new FakeConfig();
+        ChannelHub local = new ChannelHub(config);
+        FakePanelEndpoint target = new FakePanelEndpoint(local, "ep-8", new FakeMachine("M3", 1000));
+        CoverPanel model = new CoverPanel(local, ChannelType.FLUID, target, new java.util.Random(1));
+        assertEquals(EndpointStatus.UNCONNECTED, model.status(0));
+        config.fluidEnabled = false;
+        assertEquals(EndpointStatus.DISABLED, model.status(0));
+        config.fluidEnabled = true;
+        assertEquals(EndpointStatus.UNCONNECTED, model.status(0), "重新开启后恢复");
+    }
+
     @BeforeEach
     void setUp() {
         hub = new ChannelHub(new FakeConfig());

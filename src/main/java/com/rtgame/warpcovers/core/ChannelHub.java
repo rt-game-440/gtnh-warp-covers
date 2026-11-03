@@ -807,6 +807,11 @@ public final class ChannelHub {
         return anyUnloaded ? EndpointStatus.PEER_UNLOADED : EndpointStatus.NO_PEER;
     }
 
+    /** 服务器是否启用了该类型。 */
+    public boolean isEnabled(ChannelType type) {
+        return config.isEnabled(type);
+    }
+
     /**
      * 连接端当前状态（界面状态栏用）。输入端取最近一个周期的结果；输出端取最近被输入端访问的结果；
      * 结果太旧（超过两个周期）时为「等待中」。

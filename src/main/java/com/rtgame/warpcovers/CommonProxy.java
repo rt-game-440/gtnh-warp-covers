@@ -31,6 +31,7 @@ import com.rtgame.warpcovers.selfcheck.SelfCheckLog;
 import com.rtgame.warpcovers.selfcheck.SelfCheckLogDir;
 import com.rtgame.warpcovers.selfcheck.SelfCheckRunner;
 import com.rtgame.warpcovers.selfcheck.SelfCheckScenario;
+import com.rtgame.warpcovers.selfcheck.TypeSwitchScenario;
 
 import cpw.mods.fml.common.event.FMLInitializationEvent;
 import cpw.mods.fml.common.event.FMLInterModComms;
@@ -81,7 +82,8 @@ public class CommonProxy {
             new CoverAppearanceScenario(),
             new AggregateCoverScenario(),
             new QuickFilterScenario(),
-            new RemoteManagerScenario());
+            new RemoteManagerScenario(),
+            new TypeSwitchScenario());
         SelfCheckRunner runner = new SelfCheckRunner(
             new File(gameDir, "warpcovers-selfcheck-state.txt").toPath(),
             new SelfCheckLog(logDir, Clock.systemDefaultZone()),

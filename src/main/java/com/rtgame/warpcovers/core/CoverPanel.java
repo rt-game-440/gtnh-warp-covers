@@ -441,6 +441,9 @@ public final class CoverPanel {
         if (blocked != null) {
             return blocked;
         }
+        if (!hub.isEnabled(type)) {
+            return EndpointStatus.DISABLED;
+        }
         if (endpoint.channelId()
             .isEmpty()) {
             return EndpointStatus.UNCONNECTED;
