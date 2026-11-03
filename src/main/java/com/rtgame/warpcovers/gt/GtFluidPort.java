@@ -27,10 +27,18 @@ final class GtFluidPort implements MachinePort {
 
     private final WeakReference<ICoverable> tile;
     private final ForgeDirection side;
+    /** 方块位置在创建时固定下来：弱引用失效后也不会让多个失效端口撞成同一个「方块」。 */
+    private final String blockId;
 
     GtFluidPort(ICoverable tile, ForgeDirection side) {
         this.tile = new WeakReference<ICoverable>(tile);
         this.side = side;
+        this.blockId = tile.getWorld().provider.dimensionId + ":"
+            + tile.getXCoord()
+            + ","
+            + tile.getYCoord()
+            + ","
+            + tile.getZCoord();
     }
 
     private IFluidHandler handler() {
@@ -40,16 +48,7 @@ final class GtFluidPort implements MachinePort {
 
     @Override
     public String blockId() {
-        ICoverable coverable = tile.get();
-        if (coverable == null) {
-            return "gone";
-        }
-        return coverable.getWorld().provider.dimensionId + ":"
-            + coverable.getXCoord()
-            + ","
-            + coverable.getYCoord()
-            + ","
-            + coverable.getZCoord();
+        return blockId;
     }
 
     @Override

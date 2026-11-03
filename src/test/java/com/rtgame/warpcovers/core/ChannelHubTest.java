@@ -237,6 +237,7 @@ class ChannelHubTest {
         in.with("water", 50);
         assertEquals(0, hub.driveInput("in", 9).transferred());
         assertEquals(50, hub.driveInput("in", 10).transferred());
+        assertConserved(150, in, out);
     }
 
     @Test

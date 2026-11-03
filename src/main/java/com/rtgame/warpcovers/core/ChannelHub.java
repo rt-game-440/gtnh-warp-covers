@@ -136,10 +136,10 @@ public final class ChannelHub {
                 .allows(offered.key())) {
                 continue;
             }
-            int[] moved = moveKey(input, outputs, offered.key(), (int) Math.min(offered.amount(), quota));
-            transferred += moved[0];
-            lost += moved[1];
-            quota -= moved[0];
+            TransferResult moved = moveKey(input, outputs, offered.key(), (int) Math.min(offered.amount(), quota));
+            transferred += moved.transferred();
+            lost += moved.lost();
+            quota -= moved.transferred();
         }
         return new TransferResult(transferred, lost);
     }
@@ -160,8 +160,8 @@ public final class ChannelHub {
         return outputs;
     }
 
-    /** 把一种物体依次送给各输出端。返回 {实际搬运量, 丢失量}。先模拟、再实际抽取、再插入。 */
-    private int[] moveKey(Endpoint input, List<Endpoint> outputs, String key, int want) {
+    /** 把一种物体依次送给各输出端。返回实际搬运量与丢失量。先模拟、再实际抽取、再插入。 */
+    private TransferResult moveKey(Endpoint input, List<Endpoint> outputs, String key, int want) {
         int remaining = want;
         int moved = 0;
         int lost = 0;
@@ -193,7 +193,7 @@ public final class ChannelHub {
             moved += inserted;
             remaining -= inserted;
         }
-        return new int[] { moved, lost };
+        return new TransferResult(moved, lost);
     }
 
     /** 插入不足时把余量退回：先退给来源，来源不收再试其他输出端。返回仍无处可退的量。 */

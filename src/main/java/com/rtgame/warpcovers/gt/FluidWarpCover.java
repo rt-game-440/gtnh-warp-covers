@@ -17,6 +17,7 @@ import com.rtgame.warpcovers.core.ChannelHub;
 import com.rtgame.warpcovers.core.Endpoint;
 import com.rtgame.warpcovers.core.FilterList;
 import com.rtgame.warpcovers.core.InteractionState;
+import com.rtgame.warpcovers.core.MachinePort;
 
 import gregtech.api.interfaces.ITexture;
 import gregtech.api.interfaces.tileentity.ICoverable;
@@ -72,10 +73,15 @@ public class FluidWarpCover extends Cover {
             throw new IllegalStateException("覆盖板没有贴在机器上");
         }
         ChannelHub hub = WarpServices.hub();
-        hub.connect(newChannelId, endpointId, new GtFluidPort(tile, coverSide));
+        hub.connect(newChannelId, endpointId, portOf(tile));
         channelId = newChannelId;
         state = InteractionState.EMPTY;
+        // 核心与覆盖板共用同一个名单对象：覆盖板上改名单立即对核心生效
         hub.setFilter(endpointId, filter);
+    }
+
+    private MachinePort portOf(ICoverable tile) {
+        return new GtFluidPort(tile, coverSide);
     }
 
     public void disconnect() {
@@ -121,7 +127,7 @@ public class FluidWarpCover extends Cover {
             return;
         }
         // 每次运行都刷新端口：机器重载后 GT 会重建 TileEntity，旧端口里的弱引用已失效
-        hub.markLoaded(endpointId, new GtFluidPort(tile, coverSide));
+        hub.markLoaded(endpointId, portOf(tile));
         hub.driveInput(endpointId, aTickTimer);
     }
 
