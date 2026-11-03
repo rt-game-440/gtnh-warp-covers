@@ -30,6 +30,7 @@ import com.rtgame.warpcovers.selfcheck.SelfCheckCommand;
 import com.rtgame.warpcovers.selfcheck.SelfCheckLog;
 import com.rtgame.warpcovers.selfcheck.SelfCheckLogDir;
 import com.rtgame.warpcovers.selfcheck.SelfCheckRunner;
+import com.rtgame.warpcovers.selfcheck.RecipesScenario;
 import com.rtgame.warpcovers.selfcheck.SelfCheckScenario;
 import com.rtgame.warpcovers.selfcheck.TypeSwitchScenario;
 
@@ -55,7 +56,9 @@ public class CommonProxy {
         WarpServices.initIdentity();
     }
 
-    public void postInit(FMLPostInitializationEvent event) {}
+    public void postInit(FMLPostInitializationEvent event) {
+        com.rtgame.warpcovers.gt.ModRecipes.register();
+    }
 
     public void serverStopped(FMLServerStoppedEvent event) {
         WarpEvents.onServerStopped();
@@ -83,7 +86,8 @@ public class CommonProxy {
             new AggregateCoverScenario(),
             new QuickFilterScenario(),
             new RemoteManagerScenario(),
-            new TypeSwitchScenario());
+            new TypeSwitchScenario(),
+            new RecipesScenario());
         SelfCheckRunner runner = new SelfCheckRunner(
             new File(gameDir, "warpcovers-selfcheck-state.txt").toPath(),
             new SelfCheckLog(logDir, Clock.systemDefaultZone()),
