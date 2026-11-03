@@ -1,0 +1,10 @@
+// 项目自有的额外构建逻辑（GTNH 构建约定会自动应用本文件）
+
+tasks.withType(Test).configureEach {
+    // 使用 JUnit 5 平台运行单元测试
+    useJUnitPlatform()
+    testLogging {
+        events "passed", "failed", "skipped"
+        exceptionFormat "full"
+    }
+}
