@@ -346,6 +346,10 @@ public final class CoverPanel {
     // ---- 状态栏 ----
 
     public EndpointStatus status(long now) {
+        EndpointStatus blocked = endpoint.blockedStatus();
+        if (blocked != null) {
+            return blocked;
+        }
         if (endpoint.channelId()
             .isEmpty()) {
             return EndpointStatus.UNCONNECTED;

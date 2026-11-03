@@ -22,4 +22,9 @@ public interface PanelEndpoint {
 
     /** 配置在共享对象上改过之后调用（标脏、通知同步）。 */
     void configChanged();
+
+    /** 这个连接端因所贴方块的限制而不工作时返回原因；正常时为 null。 */
+    default EndpointStatus blockedStatus() {
+        return null;
+    }
 }

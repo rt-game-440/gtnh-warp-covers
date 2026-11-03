@@ -12,6 +12,7 @@ import net.minecraft.launchwrapper.Launch;
 import com.rtgame.warpcovers.gt.ModItems;
 import com.rtgame.warpcovers.gt.WarpEvents;
 import com.rtgame.warpcovers.gt.WarpServices;
+import com.rtgame.warpcovers.selfcheck.AggregateCoverScenario;
 import com.rtgame.warpcovers.selfcheck.ChannelConfigScenario;
 import com.rtgame.warpcovers.selfcheck.ChannelListingScenario;
 import com.rtgame.warpcovers.selfcheck.CoverAppearanceScenario;
@@ -30,6 +31,7 @@ import com.rtgame.warpcovers.selfcheck.SelfCheckRunner;
 import com.rtgame.warpcovers.selfcheck.SelfCheckScenario;
 
 import cpw.mods.fml.common.event.FMLInitializationEvent;
+import cpw.mods.fml.common.event.FMLInterModComms;
 import cpw.mods.fml.common.event.FMLPostInitializationEvent;
 import cpw.mods.fml.common.event.FMLPreInitializationEvent;
 import cpw.mods.fml.common.event.FMLServerStartingEvent;
@@ -44,6 +46,8 @@ public class CommonProxy {
 
     public void init(FMLInitializationEvent event) {
         ModItems.register();
+        // 用字符串：没装 WAILA 时不能加载 WarpWailaProvider
+        FMLInterModComms.sendMessage("Waila", "register", "com.rtgame.warpcovers.gt.WarpWailaProvider.register");
         WarpEvents.register();
         WarpServices.initIdentity();
     }
@@ -72,7 +76,8 @@ public class CommonProxy {
             new OwnershipScenario(),
             new ChannelConfigScenario(),
             new ChannelListingScenario(),
-            new CoverAppearanceScenario());
+            new CoverAppearanceScenario(),
+            new AggregateCoverScenario());
         SelfCheckRunner runner = new SelfCheckRunner(
             new File(gameDir, "warpcovers-selfcheck-state.txt").toPath(),
             new SelfCheckLog(logDir, Clock.systemDefaultZone()),

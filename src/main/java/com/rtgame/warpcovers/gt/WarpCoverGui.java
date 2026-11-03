@@ -1,5 +1,6 @@
 package com.rtgame.warpcovers.gt;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -10,6 +11,7 @@ import java.util.function.Function;
 import java.util.function.Supplier;
 
 import net.minecraft.entity.player.EntityPlayer;
+import net.minecraft.init.Blocks;
 import net.minecraft.init.Items;
 import net.minecraft.item.ItemStack;
 import net.minecraft.nbt.NBTTagCompound;
@@ -76,11 +78,11 @@ import gregtech.api.modularui2.GTGuiTextures;
 import gregtech.common.gui.modularui.cover.base.CoverBaseGui;
 
 /**
- * 折跃覆盖板界面（流体、物品共用）：左侧边栏「频道」「设置」两页，底部状态栏。
+ * 折跃覆盖板界面：单类型覆盖板的左侧边栏是「频道」「设置」两页；聚合覆盖板是流体、物品、能量频道和按类型分段的设置。底部状态栏。
  * 服务端按玩家构建快照（{@link PanelSnapshot}）同步给客户端，客户端的每个操作都是发往服务端的请求，
  * 由 {@link CoverPanel} 校验后执行，结果随下一次快照回到界面。
  */
-public final class WarpCoverGui extends CoverBaseGui<WarpCover> {
+public final class WarpCoverGui extends CoverBaseGui<BaseWarpCover> {
 
     private static final int ROOT_W = 196;
     private static final int ROOT_H = 146;
@@ -96,8 +98,11 @@ public final class WarpCoverGui extends CoverBaseGui<WarpCover> {
     private static final int FILTER_Y = 25;
     private static final int LIST_Y = FILTER_Y + 42;
 
-    private static final int TEXT_COLOR = 0xFF555555;
-    private static final int OWNER_COLOR = 0xFF888888;
+    private static final int TEXT_COLOR = 0xFF202020;
+    private static final int OWNER_COLOR = 0xFF484860;
+    /** 按钮底色是中灰，文字用白色才看得清。 */
+    private static final int BUTTON_TEXT = 0xFFFFFFFF;
+    private static final int BUTTON_DETAIL = 0xFFDCDCE6;
     private static final int ERROR_COLOR = 0xFFAA0000;
 
     /** 频道配置面板：左栏名称、颜色、分发，右栏权限矩阵。 */
@@ -116,18 +121,19 @@ public final class WarpCoverGui extends CoverBaseGui<WarpCover> {
     private static final int CHANNEL_ROW_H = 20;
     private static final int RECENT_ICONS = 3;
     private static final int RECENT_ICON = 10;
+    /** 聚合覆盖板设置页顶部的类型切换按钮高度。 */
+    private static final int SEGMENT_H = 16;
 
     private static final InteractionState[] STATES = { InteractionState.INPUT, InteractionState.OUTPUT,
         InteractionState.EMPTY };
 
-    public WarpCoverGui(WarpCover cover) {
+    public WarpCoverGui(BaseWarpCover cover) {
         super(cover);
     }
 
     @Override
     protected String getGuiId() {
-        return "warpcovers." + cover.channelType()
-            .key();
+        return cover.guiId();
     }
 
     @Override
@@ -138,7 +144,136 @@ public final class WarpCoverGui extends CoverBaseGui<WarpCover> {
 
     @Override
     public void addUIWidgets(PanelSyncManager syncManager, Flow column, CoverGuiData data) {
-        column.child(new Session(syncManager).build());
+        List<WarpPart> parts = cover.parts();
+        if (parts.size() == 1) {
+            column.child(new Session(syncManager, data.getPlayer(), parts.get(0), "warpcovers_", PAGE_H).build());
+        } else {
+            column.child(aggregateRoot(syncManager, data.getPlayer(), parts));
+        }
+    }
+
+    /** 聚合覆盖板：三个类型各一个频道页，设置页内用一排按钮切换类型。 */
+    private IWidget aggregateRoot(PanelSyncManager syncManager, EntityPlayer player, List<WarpPart> parts) {
+        List<Session> sessions = new ArrayList<>();
+        for (WarpPart part : parts) {
+            sessions.add(
+                new Session(
+                    syncManager,
+                    player,
+                    part,
+                    "warpcovers_" + part.channelType()
+                        .key() + "_",
+                    PAGE_H - SEGMENT_H));
+        }
+        ParentWidget<?> root = new ParentWidget<>();
+        root.size(ROOT_W, ROOT_H);
+
+        PagedWidget.Controller controller = new PagedWidget.Controller();
+        PagedWidget<?> pages = new PagedWidget<>();
+        pages.controller(controller)
+            .pos(PAGE_X, 0)
+            .size(PAGE_W, PAGE_H);
+        for (int i = 0; i < sessions.size(); i++) {
+            root.child(
+                tab(
+                    i,
+                    controller,
+                    new ItemDrawable(
+                        sectionIcon(
+                            parts.get(i)
+                                .channelType())).asIcon()
+                                    .size(16),
+                    "warpcovers.gui.tab.channels_" + parts.get(i)
+                        .channelType()
+                        .key()).pos(0, i * (TAB_SIZE + 2)));
+            pages.addPage(
+                sessions.get(i)
+                    .channelsPage());
+        }
+        root.child(
+            tab(sessions.size(), controller, GTGuiTextures.OVERLAY_BUTTON_SCREWDRIVER, "warpcovers.gui.tab.settings")
+                .pos(0, sessions.size() * (TAB_SIZE + 2)));
+
+        PagedWidget.Controller segments = new PagedWidget.Controller();
+        ParentWidget<?> settings = new ParentWidget<>();
+        settings.size(PAGE_W, PAGE_H);
+        PagedWidget<?> segmentPages = new PagedWidget<>();
+        segmentPages.controller(segments)
+            .pos(0, SEGMENT_H)
+            .size(PAGE_W, PAGE_H - SEGMENT_H);
+        int segmentW = (PAGE_W - 2 * FIELD_GAP) / sessions.size();
+        for (int i = 0; i < sessions.size(); i++) {
+            PageButton segment = new PageButton(i, segments);
+            segment.pos(i * (segmentW + FIELD_GAP), 0)
+                .size(segmentW, SEGMENT_H - 2)
+                .background(true, GTGuiTextures.BUTTON_STANDARD_PRESSED)
+                .background(false, GTGuiTextures.BUTTON_STANDARD)
+                .overlay(
+                    IKey.lang(
+                        "warpcovers.gui.section." + parts.get(i)
+                            .channelType()
+                            .key())
+                        .color(BUTTON_TEXT));
+            settings.child(segment);
+            segmentPages.addPage(
+                sessions.get(i)
+                    .settingsPage());
+        }
+        settings.child(segmentPages);
+        pages.addPage(settings);
+        root.child(pages);
+
+        addStatusBar(root, () -> {
+            int page = controller.isInitialised() ? controller.getActivePageIndex() : 0;
+            if (page < sessions.size()) {
+                return sessions.get(page);
+            }
+            return sessions.get(segments.isInitialised() ? segments.getActivePageIndex() : 0);
+        });
+        return root;
+    }
+
+    private static ItemStack sectionIcon(ChannelType type) {
+        switch (type) {
+            case FLUID:
+                return new ItemStack(Items.water_bucket);
+            case ITEM:
+                return new ItemStack(Blocks.chest);
+            default:
+                return new ItemStack(Items.redstone);
+        }
+    }
+
+    private void addStatusBar(ParentWidget<?> root, Supplier<Session> active) {
+        root.child(
+            IKey.dynamic(
+                () -> active.get()
+                    .statusLine())
+                .asWidget()
+                .pos(0, STATUS_Y)
+                .size(ROOT_W, 10)
+                .color(TEXT_COLOR));
+        root.child(
+            IKey.dynamic(
+                () -> active.get()
+                    .detailLine())
+                .asWidget()
+                .pos(0, STATUS_Y + 12)
+                .size(ROOT_W, 10)
+                .color(
+                    () -> active.get()
+                        .detailIsError() ? ERROR_COLOR : TEXT_COLOR));
+    }
+
+    private PageButton tab(int index, PagedWidget.Controller controller, IDrawable icon, String tooltipKey) {
+        PageButton button = new PageButton(index, controller);
+        button.pos(0, 0)
+            .size(TAB_SIZE, TAB_SIZE)
+            .background(true, GTGuiTextures.BUTTON_STANDARD_PRESSED)
+            .background(false, GTGuiTextures.BUTTON_STANDARD)
+            .overlay(icon)
+            .addTooltipLine(tr(tooltipKey));
+        return button;
     }
 
     private static String tr(String key, Object... args) {
@@ -158,6 +293,11 @@ public final class WarpCoverGui extends CoverBaseGui<WarpCover> {
     private final class Session {
 
         private final PanelSyncManager sync;
+        private final WarpPart part;
+        /** 同步键前缀：聚合覆盖板的三个会话不能互相冲突。 */
+        private final String syncPrefix;
+        /** 设置页高度：聚合覆盖板要给顶部的类型切换让位。 */
+        private final int settingsH;
         private final boolean client;
         private final CoverPanel panel;
         private final Viewer viewer;
@@ -184,36 +324,39 @@ public final class WarpCoverGui extends CoverBaseGui<WarpCover> {
         private NBTTagCompound parsedChannels;
         private PanelSnapshot.ChannelsView parsedView;
 
-        Session(PanelSyncManager sync) {
+        Session(PanelSyncManager sync, EntityPlayer player, WarpPart part, String syncPrefix, int settingsH) {
             this.sync = sync;
+            this.part = part;
+            this.syncPrefix = syncPrefix;
+            this.settingsH = settingsH;
             this.client = sync.isClient();
             if (client) {
                 panel = null;
                 viewer = null;
             } else {
-                EntityPlayer player = sync.getPlayer();
+                // 不能用 sync.getPlayer()：构建界面时同步管理器还没绑定到容器
                 viewer = new Viewer(
                     player.getUniqueID()
                         .toString(),
                     player.getCommandSenderName());
-                panel = new CoverPanel(WarpServices.hub(), cover.channelType(), cover, new Random());
+                panel = new CoverPanel(WarpServices.hub(), part.channelType(), part, new Random());
             }
             channels = new NbtValue(() -> client ? new NBTTagCompound() : PanelSnapshot.channels(panel, viewer));
             recentValue = new NbtValue(() -> client ? new NBTTagCompound() : PanelSnapshot.recents(panel, viewer));
-            sync.syncValue("warpcovers_recents", recentValue);
-            filter = new NbtValue(() -> client ? new NBTTagCompound() : PanelSnapshot.filter(cover.config()));
+            sync.syncValue(syncPrefix + "recents", recentValue);
+            filter = new NbtValue(() -> client ? new NBTTagCompound() : PanelSnapshot.filter(part.config()));
             status = new NbtValue(
                 () -> client ? new NBTTagCompound()
                     : PanelSnapshot.status(
                         panel,
                         MinecraftServer.getServer()
                             .getTickCounter()));
-            sync.syncValue("warpcovers_channels", channels);
-            sync.syncValue("warpcovers_filter", filter);
-            sync.syncValue("warpcovers_status", status);
+            sync.syncValue(syncPrefix + "channels", channels);
+            sync.syncValue(syncPrefix + "filter", filter);
+            sync.syncValue(syncPrefix + "status", status);
             priority = new LongSyncValue(
                 () -> client ? 0
-                    : cover.config()
+                    : part.config()
                         .priority(),
                 value -> {
                     if (!client) {
@@ -222,7 +365,7 @@ public final class WarpCoverGui extends CoverBaseGui<WarpCover> {
                 });
             rate = new LongSyncValue(
                 () -> client ? 0
-                    : cover.config()
+                    : part.config()
                         .rate(),
                 value -> {
                     if (!client) {
@@ -231,7 +374,7 @@ public final class WarpCoverGui extends CoverBaseGui<WarpCover> {
                 });
             period = new LongSyncValue(
                 () -> client ? 0
-                    : cover.config()
+                    : part.config()
                         .period(),
                 value -> {
                     if (!client) {
@@ -240,11 +383,11 @@ public final class WarpCoverGui extends CoverBaseGui<WarpCover> {
                 });
             effectiveRate = new LongSyncValue(() -> client ? 0 : panel.effectiveRate());
             effectivePeriod = new LongSyncValue(() -> client ? 0 : panel.effectivePeriod());
-            sync.syncValue("warpcovers_priority", priority);
-            sync.syncValue("warpcovers_rate", rate);
-            sync.syncValue("warpcovers_period", period);
-            sync.syncValue("warpcovers_effective_rate", effectiveRate);
-            sync.syncValue("warpcovers_effective_period", effectivePeriod);
+            sync.syncValue(syncPrefix + "priority", priority);
+            sync.syncValue(syncPrefix + "rate", rate);
+            sync.syncValue(syncPrefix + "period", period);
+            sync.syncValue(syncPrefix + "effective_rate", effectiveRate);
+            sync.syncValue(syncPrefix + "effective_period", effectivePeriod);
 
             action("create", buf -> {
                 String name = NetworkUtils.readStringSafe(buf);
@@ -274,7 +417,7 @@ public final class WarpCoverGui extends CoverBaseGui<WarpCover> {
         }
 
         private void action(String key, Consumer<PacketBuffer> handler) {
-            sync.registerSyncedAction("warpcovers_" + key, false, true, buf -> {
+            sync.registerSyncedAction(syncPrefix + key, false, true, buf -> {
                 if (panel == null) {
                     return;
                 }
@@ -287,7 +430,7 @@ public final class WarpCoverGui extends CoverBaseGui<WarpCover> {
         }
 
         private void send(String key, Consumer<PacketBuffer> writer) {
-            sync.callSyncedAction("warpcovers_" + key, writer);
+            sync.callSyncedAction(syncPrefix + key, writer);
         }
 
         IWidget build() {
@@ -314,30 +457,8 @@ public final class WarpCoverGui extends CoverBaseGui<WarpCover> {
             pages.addPage(settingsPage());
             root.child(pages);
 
-            root.child(
-                IKey.dynamic(this::statusLine)
-                    .asWidget()
-                    .pos(0, STATUS_Y)
-                    .size(ROOT_W, 10)
-                    .color(TEXT_COLOR));
-            root.child(
-                IKey.dynamic(this::detailLine)
-                    .asWidget()
-                    .pos(0, STATUS_Y + 12)
-                    .size(ROOT_W, 10)
-                    .color(() -> detailIsError() ? ERROR_COLOR : TEXT_COLOR));
+            addStatusBar(root, () -> this);
             return root;
-        }
-
-        private PageButton tab(int index, PagedWidget.Controller controller, IDrawable icon, String tooltipKey) {
-            PageButton button = new PageButton(index, controller);
-            button.pos(0, 0)
-                .size(TAB_SIZE, TAB_SIZE)
-                .background(true, GTGuiTextures.BUTTON_STANDARD_PRESSED)
-                .background(false, GTGuiTextures.BUTTON_STANDARD)
-                .overlay(icon)
-                .addTooltipLine(tr(tooltipKey));
-            return button;
         }
 
         // ---- 频道页 ----
@@ -354,7 +475,8 @@ public final class WarpCoverGui extends CoverBaseGui<WarpCover> {
                         () -> createBlock() != null ? GTGuiTextures.BUTTON_STANDARD_DISABLED
                             : GTGuiTextures.BUTTON_STANDARD))
                 .overlay(
-                    IKey.dynamic(() -> (createBlock() != null ? "\u00a78" : "") + tr("warpcovers.gui.new_channel")))
+                    IKey.dynamic(() -> (createBlock() != null ? "\u00a78" : "") + tr("warpcovers.gui.new_channel"))
+                        .color(BUTTON_TEXT))
                 .tooltipDynamic(tooltip -> {
                     CreateFailure blocked = createBlock();
                     if (blocked != null) {
@@ -433,7 +555,7 @@ public final class WarpCoverGui extends CoverBaseGui<WarpCover> {
         private IWidget channelRow(PanelSnapshot.ChannelRow row, boolean connected) {
             boolean gear = row.hasConfigPanel();
             int width = gear ? ROW_W - 15 : ROW_W;
-            boolean showRecents = cover.channelType()
+            boolean showRecents = part.channelType()
                 .hasFilter();
             int iconsW = showRecents ? RECENT_ICONS * RECENT_ICON : 0;
             ParentWidget<?> content = new ParentWidget<>();
@@ -446,7 +568,7 @@ public final class WarpCoverGui extends CoverBaseGui<WarpCover> {
             content.child(
                 new ScrollingTextWidget(IKey.str(row.name)).pos(14, 2)
                     .size(width - 16 - iconsW, 8)
-                    .color(TEXT_COLOR));
+                    .color(BUTTON_TEXT));
             if (showRecents) {
                 for (int i = 0; i < RECENT_ICONS; i++) {
                     int index = i;
@@ -459,7 +581,7 @@ public final class WarpCoverGui extends CoverBaseGui<WarpCover> {
             content.child(
                 new ScrollingTextWidget(IKey.str(rowDetail(row))).pos(14, 11)
                     .size(width - 16, 8)
-                    .color(OWNER_COLOR));
+                    .color(BUTTON_DETAIL));
 
             ButtonWidget<?> button = new ButtonWidget<>();
             button.size(width, CHANNEL_ROW_H)
@@ -562,7 +684,8 @@ public final class WarpCoverGui extends CoverBaseGui<WarpCover> {
                 .overlay(IKey.dynamic(() -> {
                     String current = channelsView().tagFilter;
                     return current.isEmpty() ? tr("warpcovers.gui.tag.all") : "#" + current;
-                }))
+                })
+                    .color(BUTTON_TEXT))
                 .addTooltipLine(tr("warpcovers.gui.tag.filter_tip"));
             tags.onMousePressed(mouse -> {
                 String next = mouse == 1 ? "" : channelsView().nextTagFilter();
@@ -589,7 +712,7 @@ public final class WarpCoverGui extends CoverBaseGui<WarpCover> {
         }
 
         private Dialog<Boolean> tagPanel() {
-            Dialog<Boolean> dialog = new Dialog<>("warpcovers_channel_tags");
+            Dialog<Boolean> dialog = new Dialog<>(syncPrefix + "channel_tags");
             dialog.setDraggable(false);
             dialog.setCloseOnOutOfBoundsClick(true);
             dialog.size(172, 112);
@@ -613,7 +736,9 @@ public final class WarpCoverGui extends CoverBaseGui<WarpCover> {
             ButtonWidget<?> add = new ButtonWidget<>();
             add.pos(126, 18)
                 .size(38, 14)
-                .overlay(IKey.lang("warpcovers.gui.tag.add"));
+                .overlay(
+                    IKey.lang("warpcovers.gui.tag.add")
+                        .color(BUTTON_TEXT));
             add.onMousePressed(mouse -> {
                 String tag = name.getStringValue();
                 sendConfig("tag_add", buf -> NetworkUtils.writeStringSafe(buf, tag));
@@ -627,7 +752,9 @@ public final class WarpCoverGui extends CoverBaseGui<WarpCover> {
                 ButtonWidget<?> tagButton = new ButtonWidget<>();
                 tagButton.pos(8 + (i % 2) * 79, 35 + (i / 2) * 13)
                     .size(77, 12)
-                    .overlay(IKey.dynamic(() -> "#" + tagAt(index)))
+                    .overlay(
+                        IKey.dynamic(() -> "#" + tagAt(index))
+                            .color(BUTTON_TEXT))
                     .addTooltipLine(tr("warpcovers.gui.tag.remove"))
                     .setEnabledIf(w -> !tagAt(index).isEmpty());
                 tagButton.onMousePressed(mouse -> {
@@ -660,7 +787,9 @@ public final class WarpCoverGui extends CoverBaseGui<WarpCover> {
                 ButtonWidget<?> button = new ButtonWidget<>();
                 button.pos(4 + i * width, 1)
                     .size(width - 2, ROW_H - 2)
-                    .overlay(IKey.lang(WarpCoverItem.stateKey(state)))
+                    .overlay(
+                        IKey.lang(WarpCoverItem.stateKey(state))
+                            .color(BUTTON_TEXT))
                     .background(
                         state == current ? GTGuiTextures.BUTTON_STANDARD_PRESSED : GTGuiTextures.BUTTON_STANDARD)
                     .addTooltipLine(
@@ -697,7 +826,7 @@ public final class WarpCoverGui extends CoverBaseGui<WarpCover> {
             BoolValue connect = new BoolValue(true);
             CreateFailure[] error = new CreateFailure[1];
 
-            Dialog<Boolean> dialog = new Dialog<>("warpcovers_new_channel");
+            Dialog<Boolean> dialog = new Dialog<>(syncPrefix + "new_channel");
             dialog.setDraggable(false);
             dialog.setCloseOnOutOfBoundsClick(true);
             dialog.size(172, 96);
@@ -747,7 +876,9 @@ public final class WarpCoverGui extends CoverBaseGui<WarpCover> {
             ButtonWidget<?> confirm = new ButtonWidget<>();
             confirm.pos(8, 74)
                 .size(76, 14)
-                .overlay(IKey.lang("warpcovers.gui.dialog.confirm"));
+                .overlay(
+                    IKey.lang("warpcovers.gui.dialog.confirm")
+                        .color(BUTTON_TEXT));
             confirm.onMousePressed(mouse -> {
                 String raw = name.getStringValue();
                 CreateFailure failure = PanelSnapshot.parseChannels(channels.getValue())
@@ -769,7 +900,9 @@ public final class WarpCoverGui extends CoverBaseGui<WarpCover> {
             ButtonWidget<?> cancel = new ButtonWidget<>();
             cancel.pos(88, 74)
                 .size(76, 14)
-                .overlay(IKey.lang("warpcovers.gui.dialog.cancel"));
+                .overlay(
+                    IKey.lang("warpcovers.gui.dialog.cancel")
+                        .color(BUTTON_TEXT));
             cancel.onMousePressed(mouse -> {
                 dialog.closeWith(false);
                 return true;
@@ -853,7 +986,7 @@ public final class WarpCoverGui extends CoverBaseGui<WarpCover> {
         }
 
         private Dialog<Boolean> configPanel() {
-            Dialog<Boolean> dialog = new Dialog<>("warpcovers_channel_config");
+            Dialog<Boolean> dialog = new Dialog<>(syncPrefix + "channel_config");
             dialog.setDraggable(false);
             dialog.setCloseOnOutOfBoundsClick(true);
             dialog.size(CFG_W, CFG_H);
@@ -913,7 +1046,9 @@ public final class WarpCoverGui extends CoverBaseGui<WarpCover> {
                 ButtonWidget<?> delete = new ButtonWidget<>();
                 delete.pos(8, 113)
                     .size(70, 14)
-                    .overlay(IKey.lang("warpcovers.gui.config.delete"));
+                    .overlay(
+                        IKey.lang("warpcovers.gui.config.delete")
+                            .color(BUTTON_TEXT));
                 delete.onMousePressed(mouse -> {
                     openDeleteDialog(dialog);
                     return true;
@@ -923,7 +1058,9 @@ public final class WarpCoverGui extends CoverBaseGui<WarpCover> {
             ButtonWidget<?> close = new ButtonWidget<>();
             close.pos(CFG_W - 78, 113)
                 .size(70, 14)
-                .overlay(IKey.lang("warpcovers.gui.config.close"));
+                .overlay(
+                    IKey.lang("warpcovers.gui.config.close")
+                        .color(BUTTON_TEXT));
             close.onMousePressed(mouse -> {
                 dialog.closeWith(true);
                 return true;
@@ -1005,7 +1142,8 @@ public final class WarpCoverGui extends CoverBaseGui<WarpCover> {
                     IKey.dynamic(
                         () -> tr(
                             "warpcovers.gui.config.distribution",
-                            tr("warpcovers.gui.config.distribution." + currentDistribution().key()))))
+                            tr("warpcovers.gui.config.distribution." + currentDistribution().key())))
+                        .color(BUTTON_TEXT))
                 .addTooltipLine(tr("warpcovers.gui.config.distribution_tip"));
             button.onMousePressed(mouse -> {
                 DistributionMode next = currentDistribution() == DistributionMode.ROUND_ROBIN
@@ -1082,7 +1220,9 @@ public final class WarpCoverGui extends CoverBaseGui<WarpCover> {
             ButtonWidget<?> preset = new ButtonWidget<>();
             preset.pos(CFG_RIGHT_X, 82)
                 .size(CFG_W - CFG_RIGHT_X - 8, 14)
-                .overlay(IKey.dynamic(() -> tr("warpcovers.gui.config.preset", tr(presetKey()))))
+                .overlay(
+                    IKey.dynamic(() -> tr("warpcovers.gui.config.preset", tr(presetKey())))
+                        .color(BUTTON_TEXT))
                 .addTooltipLine(tr("warpcovers.gui.config.preset_tip"));
             preset.onMousePressed(mouse -> {
                 boolean next = !isConfigPublic();
@@ -1163,7 +1303,7 @@ public final class WarpCoverGui extends CoverBaseGui<WarpCover> {
 
         /** 删除的二次确认：确认和取消都和删除按钮不在同一位置，连点不会误删。 */
         private Dialog<Boolean> deletePanel() {
-            Dialog<Boolean> dialog = new Dialog<>("warpcovers_delete_channel");
+            Dialog<Boolean> dialog = new Dialog<>(syncPrefix + "delete_channel");
             dialog.setDraggable(false);
             dialog.setCloseOnOutOfBoundsClick(false);
             dialog.size(172, 66);
@@ -1179,7 +1319,9 @@ public final class WarpCoverGui extends CoverBaseGui<WarpCover> {
             ButtonWidget<?> confirm = new ButtonWidget<>();
             confirm.pos(88, 44)
                 .size(76, 14)
-                .overlay(IKey.lang("warpcovers.gui.config.delete_yes"));
+                .overlay(
+                    IKey.lang("warpcovers.gui.config.delete_yes")
+                        .color(BUTTON_TEXT));
             confirm.onMousePressed(mouse -> {
                 sendConfig("cfg_delete", buf -> {});
                 dialog.closeWith(true);
@@ -1193,7 +1335,9 @@ public final class WarpCoverGui extends CoverBaseGui<WarpCover> {
             ButtonWidget<?> cancel = new ButtonWidget<>();
             cancel.pos(8, 44)
                 .size(76, 14)
-                .overlay(IKey.lang("warpcovers.gui.dialog.cancel"));
+                .overlay(
+                    IKey.lang("warpcovers.gui.dialog.cancel")
+                        .color(BUTTON_TEXT));
             cancel.onMousePressed(mouse -> {
                 dialog.closeWith(false);
                 return true;
@@ -1206,9 +1350,9 @@ public final class WarpCoverGui extends CoverBaseGui<WarpCover> {
 
         private IWidget settingsPage() {
             ParentWidget<?> page = new ParentWidget<>();
-            page.size(PAGE_W, PAGE_H);
+            page.size(PAGE_W, settingsH);
             addTransferFields(page);
-            if (!cover.channelType()
+            if (!part.channelType()
                 .hasFilter()) {
                 return energyNotes(page);
             }
@@ -1285,7 +1429,6 @@ public final class WarpCoverGui extends CoverBaseGui<WarpCover> {
                     .asWidget()
                     .pos(22, FILTER_Y + 25)
                     .size(PAGE_W - 24, 9)
-                    .scale(0.8F)
                     .color(OWNER_COLOR));
 
             DynamicLinkedSyncHandler<NbtValue> dynamic = new DynamicLinkedSyncHandler<>(filter)
@@ -1293,7 +1436,7 @@ public final class WarpCoverGui extends CoverBaseGui<WarpCover> {
             DynamicSyncedWidget<?> holder = new DynamicSyncedWidget<>();
             holder.syncHandler(dynamic)
                 .pos(0, LIST_Y)
-                .size(PAGE_W, PAGE_H - LIST_Y);
+                .size(PAGE_W, settingsH - LIST_Y);
             page.child(holder);
             return page;
         }
@@ -1361,7 +1504,7 @@ public final class WarpCoverGui extends CoverBaseGui<WarpCover> {
 
         private IWidget filterList(PanelSnapshot.FilterView view) {
             ListWidget<IWidget, ?> list = new ListWidget<>();
-            list.size(PAGE_W, PAGE_H - LIST_Y);
+            list.size(PAGE_W, settingsH - LIST_Y);
             if (view.keys.isEmpty()) {
                 list.child(
                     IKey.lang("warpcovers.gui.filter.empty")
@@ -1477,7 +1620,7 @@ public final class WarpCoverGui extends CoverBaseGui<WarpCover> {
         }
 
         private boolean isItem() {
-            return cover.channelType() == ChannelType.ITEM;
+            return part.channelType() == ChannelType.ITEM;
         }
     }
 

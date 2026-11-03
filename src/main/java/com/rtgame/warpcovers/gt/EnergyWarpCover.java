@@ -2,15 +2,11 @@ package com.rtgame.warpcovers.gt;
 
 import javax.annotation.Nonnull;
 
-import net.minecraftforge.common.util.ForgeDirection;
-
 import com.rtgame.warpcovers.core.ChannelType;
-import com.rtgame.warpcovers.core.MachinePort;
 
 import gregtech.api.covers.CoverContext;
 import gregtech.api.covers.CoverPlacer;
 import gregtech.api.interfaces.ITexture;
-import gregtech.api.interfaces.tileentity.ICoverable;
 
 /**
  * 能量折跃覆盖板：直接读写 GT 机器的内部储能（ADR-0003）。
@@ -24,16 +20,6 @@ public class EnergyWarpCover extends WarpCover {
         .build();
 
     public EnergyWarpCover(@Nonnull CoverContext context, ITexture coverTexture) {
-        super(context, coverTexture);
-    }
-
-    @Override
-    public ChannelType channelType() {
-        return ChannelType.ENERGY;
-    }
-
-    @Override
-    protected MachinePort createPort(ICoverable tile, ForgeDirection side) {
-        return GtEnergyPort.of(tile);
+        super(context, coverTexture, ChannelType.ENERGY);
     }
 }

@@ -19,6 +19,7 @@ public final class ModItems {
     public static Item fluidCover;
     public static Item itemCover;
     public static Item energyCover;
+    public static Item aggregateCover;
 
     public static final CreativeTabs TAB = new CreativeTabs(WarpCovers.MODID) {
 
@@ -66,6 +67,18 @@ public final class ModItems {
             energyTexture,
             context -> new EnergyWarpCover(context, energyTexture),
             EnergyWarpCover.PLACER);
+
+        aggregateCover = new WarpCoverItem();
+        aggregateCover.setUnlocalizedName(WarpCovers.MODID + ".cover.aggregate");
+        aggregateCover.setTextureName(WarpCovers.MODID + ":warp_cover_aggregate");
+        aggregateCover.setCreativeTab(TAB);
+        GameRegistry.registerItem(aggregateCover, "warp_cover_aggregate");
+
+        final ITexture aggregateTexture = TextureFactory.of(Textures.BlockIcons.OVERLAY_SHUTTER);
+        CoverRegistry.registerCover(
+            new ItemStack(aggregateCover),
+            aggregateTexture,
+            context -> new AggregateWarpCover(context, aggregateTexture));
 
         RecipeSorter.register(
             WarpCovers.MODID + ":clear_config",

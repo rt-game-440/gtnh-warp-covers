@@ -12,6 +12,7 @@ import net.minecraft.tileentity.TileEntity;
 import net.minecraft.world.ChunkCoordIntPair;
 import net.minecraft.world.World;
 import net.minecraft.world.WorldServer;
+import net.minecraft.world.storage.WorldInfo;
 import net.minecraftforge.common.util.FakePlayer;
 import net.minecraftforge.common.util.FakePlayerFactory;
 import net.minecraftforge.common.util.ForgeDirection;
@@ -20,6 +21,8 @@ import net.minecraftforge.fluids.FluidStack;
 
 import com.rtgame.warpcovers.core.Channel;
 import com.rtgame.warpcovers.core.ChannelHub;
+import com.rtgame.warpcovers.gt.AggregateWarpCover;
+import com.rtgame.warpcovers.gt.BaseWarpCover;
 import com.rtgame.warpcovers.gt.EnergyWarpCover;
 import com.rtgame.warpcovers.gt.FluidWarpCover;
 import com.rtgame.warpcovers.gt.ItemWarpCover;
@@ -29,6 +32,7 @@ import com.rtgame.warpcovers.gt.WarpCover;
 import gregtech.api.covers.CoverRegistry;
 import gregtech.api.enums.ItemList;
 import gregtech.api.interfaces.tileentity.IGregTechTileEntity;
+import gregtech.api.metatileentity.MetaTileEntity;
 import gregtech.common.covers.Cover;
 
 /** 自检场景共用的世界操作：放置储罐、贴覆盖板、注水、手动驱动覆盖板等。 */
@@ -178,6 +182,19 @@ final class ScenarioWorld {
         return tile instanceof IGregTechTileEntity ? (IGregTechTileEntity) tile : null;
     }
 
+    static void setEU(IGregTechTileEntity tile, long eu) {
+        ((MetaTileEntity) tile.getMetaTileEntity()).setEUVar(eu);
+        check("储能没设上: " + tile.getInventoryName(), tile.getStoredEU() == eu);
+    }
+
+    static void clearWeather(WorldServer world) {
+        WorldInfo info = world.getWorldInfo();
+        info.setRaining(false);
+        info.setRainTime(1000000);
+        info.setThundering(false);
+        info.setThunderTime(1000000);
+    }
+
     static IGregTechTileEntity requireTile(World world, int x, int y, int z) {
         IGregTechTileEntity tile = tileAt(world, x, y, z);
         if (tile == null) {
@@ -221,14 +238,22 @@ final class ScenarioWorld {
         return coverAt(tile, side, EnergyWarpCover.class);
     }
 
-    private static <T extends WarpCover> T attach(IGregTechTileEntity tile, ForgeDirection side, Item item,
+    static AggregateWarpCover attachAggregateCover(IGregTechTileEntity tile, ForgeDirection side) {
+        return attach(tile, side, ModItems.aggregateCover, AggregateWarpCover.class);
+    }
+
+    static AggregateWarpCover aggregateCoverAt(IGregTechTileEntity tile, ForgeDirection side) {
+        return coverAt(tile, side, AggregateWarpCover.class);
+    }
+
+    private static <T extends BaseWarpCover> T attach(IGregTechTileEntity tile, ForgeDirection side, Item item,
         Class<T> type) {
         Cover cover = CoverRegistry.buildCover(new ItemStack(item), side, tile);
         tile.attachCover(cover);
         return coverAt(tile, side, type);
     }
 
-    private static <T extends WarpCover> T coverAt(IGregTechTileEntity tile, ForgeDirection side, Class<T> type) {
+    private static <T extends BaseWarpCover> T coverAt(IGregTechTileEntity tile, ForgeDirection side, Class<T> type) {
         Cover attached = tile.getCoverAtSide(side);
         if (!type.isInstance(attached)) {
             throw new IllegalStateException("该面没有" + type.getSimpleName() + ": " + side + " 实际 " + attached);

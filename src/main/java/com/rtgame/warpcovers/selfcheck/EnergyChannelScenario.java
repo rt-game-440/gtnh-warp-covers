@@ -6,7 +6,6 @@ import net.minecraft.init.Blocks;
 import net.minecraft.item.ItemStack;
 import net.minecraft.world.World;
 import net.minecraft.world.WorldServer;
-import net.minecraft.world.storage.WorldInfo;
 import net.minecraftforge.common.util.ForgeDirection;
 
 import com.rtgame.warpcovers.core.Channel;
@@ -21,7 +20,6 @@ import gregtech.api.enums.ItemList;
 import gregtech.api.enums.Materials;
 import gregtech.api.enums.OrePrefixes;
 import gregtech.api.interfaces.tileentity.IGregTechTileEntity;
-import gregtech.api.metatileentity.MetaTileEntity;
 import gregtech.api.util.GTOreDictUnificator;
 import gregtech.common.covers.Cover;
 
@@ -247,11 +245,6 @@ public final class EnergyChannelScenario implements SelfCheckScenario {
         return Math.min(q.getEUCapacity(), Q_EU);
     }
 
-    private static void setEU(IGregTechTileEntity tile, long eu) {
-        ((MetaTileEntity) tile.getMetaTileEntity()).setEUVar(eu);
-        check("储能没设上: " + tile.getInventoryName(), tile.getStoredEU() == eu);
-    }
-
     private static long total(IGregTechTileEntity... tiles) {
         long sum = 0;
         for (IGregTechTileEntity tile : tiles) {
@@ -269,14 +262,6 @@ public final class EnergyChannelScenario implements SelfCheckScenario {
                 .append(actual)
                 .append(" EU；");
         }
-    }
-
-    private static void clearWeather(WorldServer world) {
-        WorldInfo info = world.getWorldInfo();
-        info.setRaining(false);
-        info.setRainTime(1000000);
-        info.setThundering(false);
-        info.setThunderTime(1000000);
     }
 
     /** 把方块六个面的邻居换成石头。 */

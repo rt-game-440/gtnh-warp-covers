@@ -24,7 +24,9 @@ public enum EndpointStatus {
     /** 物体被过滤名单挡下。 */
     FILTERED("filtered"),
     /** 本端（输入端）机器里没有可抽取的物体。 */
-    SOURCE_EMPTY("source_empty");
+    SOURCE_EMPTY("source_empty"),
+    /** 聚合覆盖板贴在没有内部储能的方块上，能量部分不工作。 */
+    NO_ENERGY_STORAGE("no_energy_storage");
 
     private final String key;
 
