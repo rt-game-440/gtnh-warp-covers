@@ -4,6 +4,7 @@ warpcovers.mod.description=Cover-based item, fluid and energy warp channels for 
 
 item.warpcovers.cover.fluid.name=Fluid Warp Cover
 item.warpcovers.cover.item.name=Item Warp Cover
+item.warpcovers.cover.energy.name=Energy Warp Cover
 itemGroup.warpcovers=Warp Covers
 
 warpcovers.state.input=Input
@@ -49,6 +50,9 @@ warpcovers.gui.filter.nbt_off=Match NBT: off (only item ID and damage value matt
 warpcovers.gui.filter.with_nbt=%s (with NBT)
 warpcovers.gui.filter.empty=The list is empty
 warpcovers.gui.filter.remove=Remove from the list
+warpcovers.gui.energy.no_filter=Energy warp covers have no filter list.
+warpcovers.gui.energy.direct=Outputs charge EU straight into the machine's internal storage until it is full: no voltage or amperage checks, no explosions, no loss.
+warpcovers.gui.energy.source=Inputs only draw EU from machines that output power (generators, battery buffers, transformers and so on).
 warpcovers.gui.status=Status: %s
 warpcovers.gui.reason=Last disconnected: %s
 

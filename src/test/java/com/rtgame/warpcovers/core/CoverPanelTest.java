@@ -248,6 +248,27 @@ class CoverPanelTest {
     }
 
     @Test
+    void 能量覆盖板没有名单_改名单的操作一律忽略() {
+        FakePanelEndpoint energy = new FakePanelEndpoint(hub, "ep-e", new FakeMachine("E", 1000));
+        CoverPanel energyPanel = new CoverPanel(hub, ChannelType.ENERGY, energy, new Random(1));
+        assertFalse(energyPanel.addFilterKey("eu"));
+        energyPanel.setWhitelist(false);
+        energyPanel.setMatchNbt(true);
+        energyPanel.clearFilter();
+        assertTrue(
+            energy.config.filter()
+                .keys()
+                .isEmpty());
+        assertTrue(
+            energy.config.filter()
+                .isWhitelist());
+        assertFalse(
+            energy.config.filter()
+                .matchNbt());
+        assertEquals(0, energy.configChanges);
+    }
+
+    @Test
     void 名单不限条数() {
         for (int i = 0; i < 500; i++) {
             panel.addFilterKey("fluid" + i);

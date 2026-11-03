@@ -57,11 +57,13 @@ public class WarpCoverItem extends Item {
         ConfigNbt.read(tag, config);
         lines.add(tr("warpcovers.tooltip.state", tr(stateKey(config.state()))));
         FilterList filter = config.filter();
-        lines.add(
-            tr(
-                filter.isWhitelist() ? "warpcovers.tooltip.whitelist" : "warpcovers.tooltip.blacklist",
-                filter.keys()
-                    .size()));
+        if (hasFilter(stack)) {
+            lines.add(
+                tr(
+                    filter.isWhitelist() ? "warpcovers.tooltip.whitelist" : "warpcovers.tooltip.blacklist",
+                    filter.keys()
+                        .size()));
+        }
         if (config.priority() != 0) {
             lines.add(tr("warpcovers.tooltip.priority", config.priority()));
         }
@@ -72,6 +74,11 @@ public class WarpCoverItem extends Item {
             lines.add(tr("warpcovers.tooltip.period", config.period()));
         }
         lines.add(EnumChatFormatting.DARK_GRAY + tr("warpcovers.tooltip.clear_hint"));
+    }
+
+    /** 能量覆盖板没有过滤名单，提示里不显示名单行。 */
+    private static boolean hasFilter(ItemStack stack) {
+        return stack.getItem() != ModItems.energyCover;
     }
 
     public static String stateKey(InteractionState state) {

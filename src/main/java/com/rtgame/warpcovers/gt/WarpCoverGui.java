@@ -459,6 +459,10 @@ public final class WarpCoverGui extends CoverBaseGui<WarpCover> {
         private IWidget settingsPage() {
             ParentWidget<?> page = new ParentWidget<>();
             page.size(PAGE_W, PAGE_H);
+            if (!cover.channelType()
+                .hasFilter()) {
+                return energyNotes(page);
+            }
 
             ButtonWidget<?> mode = new ButtonWidget<>();
             mode.pos(0, 0)
@@ -636,6 +640,25 @@ public final class WarpCoverGui extends CoverBaseGui<WarpCover> {
 
         private boolean isMatchNbt() {
             return PanelSnapshot.parseFilter(filter.getValue()).matchNbt;
+        }
+
+        /** 能量没有过滤名单：设置页只说明直灌规则。 */
+        private IWidget energyNotes(ParentWidget<?> page) {
+            String[] keys = { "warpcovers.gui.energy.no_filter", "warpcovers.gui.energy.direct",
+                "warpcovers.gui.energy.source" };
+            int[] heights = { 10, 30, 30 };
+            int y = 2;
+            for (int i = 0; i < keys.length; i++) {
+                page.child(
+                    IKey.lang(keys[i])
+                        .asWidget()
+                        .alignment(Alignment.TopLeft)
+                        .pos(0, y)
+                        .size(PAGE_W - 2, heights[i])
+                        .color(i == 0 ? TEXT_COLOR : OWNER_COLOR));
+                y += heights[i] + 4;
+            }
+            return page;
         }
 
         private boolean isItem() {

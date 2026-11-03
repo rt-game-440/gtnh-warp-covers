@@ -12,6 +12,7 @@ import net.minecraft.launchwrapper.Launch;
 import com.rtgame.warpcovers.gt.ModItems;
 import com.rtgame.warpcovers.gt.WarpEvents;
 import com.rtgame.warpcovers.selfcheck.DevEnvironment;
+import com.rtgame.warpcovers.selfcheck.EnergyChannelScenario;
 import com.rtgame.warpcovers.selfcheck.FluidChannelScenario;
 import com.rtgame.warpcovers.selfcheck.HullSmokeScenario;
 import com.rtgame.warpcovers.selfcheck.ItemChannelScenario;
@@ -58,7 +59,8 @@ public class CommonProxy {
             new HullSmokeScenario(),
             new FluidChannelScenario(),
             new PersistenceScenario(),
-            new ItemChannelScenario());
+            new ItemChannelScenario(),
+            new EnergyChannelScenario());
         SelfCheckRunner runner = new SelfCheckRunner(
             new File(gameDir, "warpcovers-selfcheck-state.txt").toPath(),
             new SelfCheckLog(logDir, Clock.systemDefaultZone()),

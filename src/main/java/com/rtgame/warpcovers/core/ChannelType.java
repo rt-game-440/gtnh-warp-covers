@@ -18,6 +18,11 @@ public enum ChannelType {
         return key;
     }
 
+    /** 能量没有过滤名单（需求 4.3）：核心对能量频道跳过名单判断，界面也不显示名单。 */
+    public boolean hasFilter() {
+        return this != ENERGY;
+    }
+
     public static ChannelType byKey(String key) {
         for (ChannelType type : values()) {
             if (type.key.equals(key)) {

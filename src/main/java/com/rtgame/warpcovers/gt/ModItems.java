@@ -18,6 +18,7 @@ public final class ModItems {
 
     public static Item fluidCover;
     public static Item itemCover;
+    public static Item energyCover;
 
     public static final CreativeTabs TAB = new CreativeTabs(WarpCovers.MODID) {
 
@@ -50,6 +51,19 @@ public final class ModItems {
         final ITexture itemTexture = TextureFactory.of(Textures.BlockIcons.OVERLAY_CONVEYOR);
         CoverRegistry
             .registerCover(new ItemStack(itemCover), itemTexture, context -> new ItemWarpCover(context, itemTexture));
+
+        energyCover = new WarpCoverItem();
+        energyCover.setUnlocalizedName(WarpCovers.MODID + ".cover.energy");
+        energyCover.setTextureName(WarpCovers.MODID + ":warp_cover_energy");
+        energyCover.setCreativeTab(TAB);
+        GameRegistry.registerItem(energyCover, "warp_cover_energy");
+
+        final ITexture energyTexture = TextureFactory.of(Textures.BlockIcons.OVERLAY_ENERGY_IN_LuV);
+        CoverRegistry.registerCover(
+            new ItemStack(energyCover),
+            energyTexture,
+            context -> new EnergyWarpCover(context, energyTexture),
+            EnergyWarpCover.PLACER);
 
         RecipeSorter.register(
             WarpCovers.MODID + ":clear_config",

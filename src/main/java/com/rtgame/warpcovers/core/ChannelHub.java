@@ -406,8 +406,7 @@ public final class ChannelHub {
                 continue;
             }
             anyOffered = true;
-            if (!input.filter()
-                .allows(offered.key())) {
+            if (!allows(input, offered.key())) {
                 continue;
             }
             anyAllowedBySelf = true;
@@ -438,14 +437,24 @@ public final class ChannelHub {
         return Math.max(1, Math.max(config.minPeriodTicks(), config.defaultPeriodTicks()));
     }
 
-    private static boolean anyAllows(List<Endpoint> outputs, String key) {
+    private boolean anyAllows(List<Endpoint> outputs, String key) {
         for (Endpoint output : outputs) {
-            if (output.filter()
-                .allows(key)) {
+            if (allows(output, key)) {
                 return true;
             }
         }
         return false;
+    }
+
+    /** 名单是否放行；没有名单的频道类型（能量）一律放行。 */
+    private boolean allows(Endpoint endpoint, String key) {
+        Channel channel = channels.get(endpoint.channelId());
+        if (channel != null && !channel.type()
+            .hasFilter()) {
+            return true;
+        }
+        return endpoint.filter()
+            .allows(key);
     }
 
     /**
@@ -525,8 +534,7 @@ public final class ChannelHub {
             if (remaining <= 0) {
                 break;
             }
-            if (!output.filter()
-                .allows(key)) {
+            if (!allows(output, key)) {
                 output.noteReceived(EndpointStatus.FILTERED, now);
                 continue;
             }
@@ -565,8 +573,7 @@ public final class ChannelHub {
             if (rest <= 0) {
                 break;
             }
-            if (other == refused || !other.filter()
-                .allows(key)) {
+            if (other == refused || !allows(other, key)) {
                 continue;
             }
             rest -= Math.min(

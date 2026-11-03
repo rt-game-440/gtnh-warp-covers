@@ -130,6 +130,9 @@ public final class CoverPanel {
     }
 
     public void setWhitelist(boolean whitelist) {
+        if (!type.hasFilter()) {
+            return;
+        }
         FilterList filter = endpoint.config()
             .filter();
         if (filter.isWhitelist() != whitelist) {
@@ -139,6 +142,9 @@ public final class CoverPanel {
     }
 
     public void setMatchNbt(boolean matchNbt) {
+        if (!type.hasFilter()) {
+            return;
+        }
         FilterList filter = endpoint.config()
             .filter();
         if (filter.matchNbt() != matchNbt) {
@@ -149,7 +155,7 @@ public final class CoverPanel {
 
     /** 往名单里加一种物体；已在名单里时返回 false。 */
     public boolean addFilterKey(String key) {
-        if (key == null || key.isEmpty()) {
+        if (key == null || key.isEmpty() || !type.hasFilter()) {
             return false;
         }
         boolean added = endpoint.config()
@@ -172,6 +178,9 @@ public final class CoverPanel {
     }
 
     public void clearFilter() {
+        if (!type.hasFilter()) {
+            return;
+        }
         FilterList filter = endpoint.config()
             .filter();
         if (!filter.keys()

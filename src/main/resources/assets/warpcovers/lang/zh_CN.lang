@@ -4,6 +4,7 @@ warpcovers.mod.description=为 GTNH 提供基于覆盖板的物品、流体与�
 
 item.warpcovers.cover.fluid.name=流体折跃覆盖板
 item.warpcovers.cover.item.name=物品折跃覆盖板
+item.warpcovers.cover.energy.name=能量折跃覆盖板
 itemGroup.warpcovers=折跃覆盖板
 
 warpcovers.state.input=输入
@@ -49,6 +50,9 @@ warpcovers.gui.filter.nbt_off=匹配 NBT：关（只看物品 ID 与损伤值）
 warpcovers.gui.filter.with_nbt=%s（带 NBT）
 warpcovers.gui.filter.empty=名单为空
 warpcovers.gui.filter.remove=从名单中移除
+warpcovers.gui.energy.no_filter=能量覆盖板没有过滤名单。
+warpcovers.gui.energy.direct=输出端把 EU 直接充进机器的内部储能，最多充满为止：不检查电压和电流，不会爆炸，也没有损耗。
+warpcovers.gui.energy.source=输入端只从会向外供电的机器（发电机、电池箱、变压器等）抽取 EU。
 warpcovers.gui.status=状态：%s
 warpcovers.gui.reason=最近断开：%s
 

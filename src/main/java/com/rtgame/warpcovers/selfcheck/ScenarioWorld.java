@@ -20,6 +20,7 @@ import net.minecraftforge.fluids.FluidStack;
 
 import com.rtgame.warpcovers.core.Channel;
 import com.rtgame.warpcovers.core.ChannelHub;
+import com.rtgame.warpcovers.gt.EnergyWarpCover;
 import com.rtgame.warpcovers.gt.FluidWarpCover;
 import com.rtgame.warpcovers.gt.ItemWarpCover;
 import com.rtgame.warpcovers.gt.ModItems;
@@ -200,6 +201,24 @@ final class ScenarioWorld {
 
     static ItemWarpCover itemCoverAt(IGregTechTileEntity tile, ForgeDirection side) {
         return coverAt(tile, side, ItemWarpCover.class);
+    }
+
+    /** 按玩家右键贴覆盖板时 GT 的放置判断：能量覆盖板只能贴在有内部储能的方块上。 */
+    static boolean canPlaceEnergyCover(IGregTechTileEntity tile, ForgeDirection side) {
+        ItemStack stack = new ItemStack(ModItems.energyCover);
+        return CoverRegistry.getCoverPlacer(stack)
+            .isCoverPlaceable(side, stack, tile);
+    }
+
+    static EnergyWarpCover attachEnergyCover(IGregTechTileEntity tile, ForgeDirection side) {
+        if (!canPlaceEnergyCover(tile, side)) {
+            throw new IllegalStateException("GT 不允许在这里贴能量覆盖板: " + tile.getInventoryName() + " " + side);
+        }
+        return attach(tile, side, ModItems.energyCover, EnergyWarpCover.class);
+    }
+
+    static EnergyWarpCover energyCoverAt(IGregTechTileEntity tile, ForgeDirection side) {
+        return coverAt(tile, side, EnergyWarpCover.class);
     }
 
     private static <T extends WarpCover> T attach(IGregTechTileEntity tile, ForgeDirection side, Item item,

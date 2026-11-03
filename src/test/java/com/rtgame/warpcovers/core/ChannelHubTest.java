@@ -542,4 +542,29 @@ class ChannelHubTest {
             assertConserved(4500, in, o1, o2);
         }
     }
+
+    // ---- 能量频道 ----
+
+    @Test
+    void 能量频道没有名单_空白名单也照常传输() {
+        Channel energy = hub.createChannel(ChannelType.ENERGY, "能量频道");
+        FakeMachine in = new FakeMachine("A", 100000).with("eu", 5000);
+        FakeMachine out = new FakeMachine("B", 3000);
+        connect(energy.id(), "in", in);
+        connect(energy.id(), "out", out);
+        setState("in", InteractionState.INPUT);
+        setState("out", InteractionState.OUTPUT);
+        // 默认的空白名单在流体、物品频道会挡住一切，能量频道不看名单
+        assertTrue(
+            hub.findEndpoint("in")
+                .filter()
+                .isWhitelist());
+        hub.driveInput("in", 0);
+        assertEquals(3000, out.amountOf("eu"), "充满即止");
+        assertEquals(2000, in.amountOf("eu"));
+        assertConserved(5000, in, out);
+        hub.driveInput("in", 20);
+        assertConserved(5000, in, out);
+        assertEquals(EndpointStatus.PEER_FULL, hub.statusOf("in", 20));
+    }
 }
