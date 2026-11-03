@@ -11,6 +11,7 @@ public final class Endpoint {
     private MachinePort port;
     /** 下次允许运行的世界时间。 */
     private long nextRunTime = Long.MIN_VALUE;
+    private long lastSeenTime = Long.MIN_VALUE;
 
     Endpoint(String endpointId, String channelId, MachinePort port) {
         this.endpointId = endpointId;
@@ -52,6 +53,15 @@ public final class Endpoint {
 
     void setPort(MachinePort port) {
         this.port = port;
+    }
+
+    /** 上一次被驱动时调用方给出的时间；用来发现时钟回退（如 GT 机器重载后计时器归零）。 */
+    long lastSeenTime() {
+        return lastSeenTime;
+    }
+
+    void setLastSeenTime(long lastSeenTime) {
+        this.lastSeenTime = lastSeenTime;
     }
 
     long nextRunTime() {

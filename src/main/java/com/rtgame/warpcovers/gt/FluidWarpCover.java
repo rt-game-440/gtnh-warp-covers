@@ -120,9 +120,8 @@ public class FluidWarpCover extends Cover {
         if (endpoint == null) {
             return;
         }
-        if (!endpoint.isLoaded()) {
-            hub.markLoaded(endpointId, new GtFluidPort(tile, coverSide));
-        }
+        // 每次运行都刷新端口：机器重载后 GT 会重建 TileEntity，旧端口里的弱引用已失效
+        hub.markLoaded(endpointId, new GtFluidPort(tile, coverSide));
         hub.driveInput(endpointId, aTickTimer);
     }
 

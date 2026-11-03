@@ -239,6 +239,22 @@ class ChannelHubTest {
         assertEquals(50, hub.driveInput("in", 10).transferred());
     }
 
+    @Test
+    void 调用方时钟回退后输入端仍按周期运行() {
+        FakeMachine in = new FakeMachine("A", 5000).with("water", 100);
+        FakeMachine out = new FakeMachine("B", 5000);
+        attach("in", in, InteractionState.INPUT, "water");
+        attach("out", out, InteractionState.OUTPUT, "water");
+        assertEquals(100, hub.driveInput("in", 100000).transferred());
+        // 机器重载，计时器从 0 重新开始
+        in.with("water", 50);
+        assertEquals(50, hub.driveInput("in", 3).transferred(), "时钟回退后应重新计周期");
+        in.with("water", 10);
+        assertEquals(0, hub.driveInput("in", 10).transferred(), "回退后仍遵守周期");
+        assertEquals(10, hub.driveInput("in", 23).transferred());
+        assertConserved(160, in, out);
+    }
+
     // ---- 背压、自环、卸载 ----
 
     @Test

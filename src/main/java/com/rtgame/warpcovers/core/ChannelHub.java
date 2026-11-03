@@ -108,6 +108,11 @@ public final class ChannelHub {
         if (input == null || input.state() != InteractionState.INPUT || !input.isLoaded()) {
             return TransferResult.NONE;
         }
+        // 调用方的时钟回退（机器重载后计时器归零）：旧的到期时间已无意义，否则会长时间停转
+        if (now < input.lastSeenTime()) {
+            input.setNextRunTime(Long.MIN_VALUE);
+        }
+        input.setLastSeenTime(now);
         Channel channel = channels.get(input.channelId());
         if (channel == null || !config.isEnabled(channel.type()) || now < input.nextRunTime()) {
             return TransferResult.NONE;
