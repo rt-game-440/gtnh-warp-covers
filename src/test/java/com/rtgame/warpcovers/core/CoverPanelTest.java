@@ -22,6 +22,50 @@ class CoverPanelTest {
     private FakePanelEndpoint endpoint;
     private CoverPanel panel;
 
+    @Test
+    void 面板修改优先级速率周期并报告实际值() {
+        FakeConfig config = new FakeConfig();
+        config.rateCap = 500;
+        config.minPeriod = 10;
+        ChannelHub local = new ChannelHub(config);
+        FakePanelEndpoint target = new FakePanelEndpoint(local, "ep-9", new FakeMachine("M2", 1000));
+        CoverPanel model = new CoverPanel(local, ChannelType.FLUID, target, new java.util.Random(1));
+
+        assertEquals(20, model.effectivePeriod(), "未设置时取默认周期");
+        assertEquals(500, model.effectiveRate(), "未设置时取全局上限");
+
+        model.setPriority(-3);
+        model.setRate(1000);
+        model.setPeriod(5);
+        assertEquals(
+            -3,
+            target.config()
+                .priority());
+        assertEquals(
+            1000,
+            target.config()
+                .rate());
+        assertEquals(
+            5,
+            target.config()
+                .period());
+        assertEquals(500, model.effectiveRate(), "全局上限更小");
+        assertEquals(10, model.effectivePeriod(), "不低于最短周期");
+
+        model.setRate(-1);
+        model.setPeriod(-1);
+        assertEquals(
+            0,
+            target.config()
+                .rate(),
+            "负数当作不限");
+        assertEquals(
+            0,
+            target.config()
+                .period(),
+            "负数当作跟随默认");
+    }
+
     @BeforeEach
     void setUp() {
         hub = new ChannelHub(new FakeConfig());

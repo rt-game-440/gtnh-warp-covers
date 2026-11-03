@@ -28,7 +28,14 @@ public final class WarpServices {
 
         @Override
         public long globalRateCap(ChannelType type) {
-            return ServerConfig.globalRateCap;
+            switch (type) {
+                case ITEM:
+                    return ServerConfig.globalRateCapItems;
+                case ENERGY:
+                    return ServerConfig.globalRateCapEnergy;
+                default:
+                    return ServerConfig.globalRateCapFluids;
+            }
         }
 
         @Override

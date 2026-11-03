@@ -19,9 +19,13 @@ public final class Endpoint {
     private MachinePort port;
     /** 覆盖板回调；与 port 同时存在。 */
     private EndpointHost host;
-    /** 下次允许运行的世界时间。 */
-    private long nextRunTime = Long.MIN_VALUE;
+    /** 输入端上一次运行的时间；{@link Long#MIN_VALUE} 表示还没运行过。周期按它算，所以修改周期立即生效。 */
+    private long lastRunTime = Long.MIN_VALUE;
     private long lastSeenTime = Long.MIN_VALUE;
+    /** 输出端当前接收窗口的起点（以输出端自身的周期为窗口长度）；{@link Long#MIN_VALUE} 表示尚未开窗。 */
+    private long windowStart = Long.MIN_VALUE;
+    /** 输出端当前窗口里已经接收的量。 */
+    private long receivedInWindow = 0;
     /** 最近一次传输尝试得出的状态（只在内存里）。 */
     private EndpointStatus lastStatus;
     private long lastStatusTime = Long.MIN_VALUE;
@@ -125,12 +129,36 @@ public final class Endpoint {
         this.lastSeenTime = lastSeenTime;
     }
 
-    long nextRunTime() {
-        return nextRunTime;
+    long lastRunTime() {
+        return lastRunTime;
     }
 
-    void setNextRunTime(long nextRunTime) {
-        this.nextRunTime = nextRunTime;
+    void setLastRunTime(long lastRunTime) {
+        this.lastRunTime = lastRunTime;
+    }
+
+    /**
+     * 输出端在 now 所在窗口里还能接收多少。窗口过期（或时钟回退）时开新窗口。
+     *
+     * @param rate   输出端的实际速率，{@link Long#MAX_VALUE} 表示不限
+     * @param period 输出端自身的实际周期
+     */
+    long windowRemaining(long now, long rate, long period) {
+        if (rate == Long.MAX_VALUE) {
+            windowStart = Long.MIN_VALUE;
+            receivedInWindow = 0;
+            return Long.MAX_VALUE;
+        }
+        if (windowStart == Long.MIN_VALUE || now < windowStart || now - windowStart >= period) {
+            windowStart = now;
+            receivedInWindow = 0;
+        }
+        return Math.max(0, rate - receivedInWindow);
+    }
+
+    /** 记下输出端在当前窗口里收到的量。 */
+    void addReceived(long amount) {
+        receivedInWindow += amount;
     }
 
     EndpointStatus lastStatus() {

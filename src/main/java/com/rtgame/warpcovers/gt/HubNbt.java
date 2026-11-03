@@ -15,6 +15,7 @@ import com.rtgame.warpcovers.core.ChannelColors;
 import com.rtgame.warpcovers.core.ChannelHub;
 import com.rtgame.warpcovers.core.ChannelType;
 import com.rtgame.warpcovers.core.DisconnectReason;
+import com.rtgame.warpcovers.core.DistributionMode;
 import com.rtgame.warpcovers.core.Endpoint;
 import com.rtgame.warpcovers.core.Tombstone;
 
@@ -49,6 +50,10 @@ public final class HubNbt {
             tag.setInteger("color", channel.color());
             tag.setString("owner", channel.ownerId());
             tag.setString("ownerName", channel.ownerName());
+            tag.setString(
+                "distribution",
+                channel.distribution()
+                    .key());
             channels.appendTag(tag);
         }
         root.setTag("channels", channels);
@@ -120,7 +125,8 @@ public final class HubNbt {
                 tag.getString("name"),
                 color,
                 tag.getString("owner"),
-                tag.getString("ownerName"));
+                tag.getString("ownerName"),
+                DistributionMode.byKey(tag.getString("distribution")));
         }
         NBTTagList endpoints = root.getTagList("endpoints", TAG_COMPOUND);
         for (int i = 0; i < endpoints.tagCount(); i++) {

@@ -16,6 +16,7 @@ public final class Channel {
     private String ownerId;
     /** 归属者显示名，只作展示缓存。 */
     private String ownerName;
+    private DistributionMode distribution = DistributionMode.ROUND_ROBIN;
     /** 按连接顺序号升序。 */
     private final List<Endpoint> endpoints = new ArrayList<Endpoint>();
 
@@ -69,6 +70,15 @@ public final class Channel {
     void setOwner(String ownerId, String ownerName) {
         this.ownerId = ownerId == null ? "" : ownerId;
         this.ownerName = ownerName == null ? "" : ownerName;
+    }
+
+    /** 分发方式：同一输出优先级内各输出端如何分配。 */
+    public DistributionMode distribution() {
+        return distribution;
+    }
+
+    void setDistribution(DistributionMode distribution) {
+        this.distribution = distribution == null ? DistributionMode.ROUND_ROBIN : distribution;
     }
 
     /** 当前连在频道上的连接端，按连接顺序号升序。 */

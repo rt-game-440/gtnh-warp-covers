@@ -1,5 +1,7 @@
 # 开发记忆
 
+- 2026-11-03 16:28 传输时钟统一用服务器 tick（`MinecraftServer.getTickCounter()`）：GT 传给 `doCoverThings` 的 aTickTimer 是每台机器各自的计时器，不能用于输出端接收窗口和状态栏。自检要控制时间就调 `WarpCover.tickAt(now)`，不要调 `doCoverThings`。
+- 2026-11-03 16:28 ModularUI2 `TextFieldWidget` 的数字模式（`setNumbers*`）经过 double 计算且可能带格式化，大数丢精度；`LongSyncValue.setStringValue` 又直接 `Long.parseLong`。所以数字框用 `setValidator` + `core/NumberInput` 规范成纯整数。
 - 2026-11-03 16:07 能量端口（`gt/GtEnergyPort`）：充能用 `IBasicEnergyContainer.increaseStoredEnergyUnits(n, true)` 直接加内部储能，不走 `injectEnergyUnits`，所以不判电压、不会爆炸；抽取 `decreaseStoredEnergyUnits(n, false)`，只抽 `getOutputVoltage() > 0` 的机器。贴放限制用 `CoverRegistry.registerCover(stack, tex, factory, CoverPlacer.builder().onlyPlaceIf(...).build())`，GT 右键贴覆盖板前会调 `isCoverPlaceable`。能量类型 `ChannelType.hasFilter()` 为 false，核心与面板跳过名单。自检里露天 GT 电器淋雨、下界挨岩浆会爆炸，要清天气、用石头围住。
 - 2026-11-03 15:50 GTNHLib 物品迭代器陷阱：`InventoryItemSink.simulatedSinkIterator()` 的 `rewind()` 恒返回 false、不支持 previous，模拟只能单遍逐槽 `insert(..., false)` 累计；`AbstractInventoryIterator.previousIndex()/nextIndex()` 返回的是相邻**槽号** `slots[last∓1]` 而不是迭代位置（第一个元素调 previousIndex 越界 -1），要自己数位置（见 `gt/GtItemPort`）。`InventoryIterator.extract(n, forced)` 第二参数是 forced 不是 simulate。
 - 2026-11-03 15:50 物品键 `注册名@损伤值[#Base64(按键名排序重建的 NBT)]`（`gt/ItemKeys`）；`FilterList` 在匹配 NBT 关时按 `ObjectKeys.withoutNbt` 比较。核心退回余量走 `MachinePort.restore`：物品端口先强制放回原槽、再正常放入、最后在方块旁掉落，保证不丢物品。

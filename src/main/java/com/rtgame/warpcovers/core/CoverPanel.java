@@ -190,6 +190,45 @@ public final class CoverPanel {
         }
     }
 
+    /** 输出优先级：越大越先收。 */
+    public void setPriority(int priority) {
+        EndpointConfig config = endpoint.config();
+        if (config.priority() != priority) {
+            config.setPriority(priority);
+            endpoint.configChanged();
+        }
+    }
+
+    /** 每个运行周期最多搬运多少；0 表示不限（仍受全局上限约束）。负数当作 0。 */
+    public void setRate(long rate) {
+        EndpointConfig config = endpoint.config();
+        long value = Math.max(0, rate);
+        if (config.rate() != value) {
+            config.setRate(value);
+            endpoint.configChanged();
+        }
+    }
+
+    /** 运行周期（tick）；0 表示跟随服务器默认周期。负数当作 0。 */
+    public void setPeriod(int period) {
+        EndpointConfig config = endpoint.config();
+        int value = Math.max(0, period);
+        if (config.period() != value) {
+            config.setPeriod(value);
+            endpoint.configChanged();
+        }
+    }
+
+    /** 实际生效的运行周期（tick）。 */
+    public long effectivePeriod() {
+        return hub.effectivePeriod(endpoint.config());
+    }
+
+    /** 实际生效的速率；{@link Long#MAX_VALUE} 表示不限。 */
+    public long effectiveRate() {
+        return hub.effectiveRate(type, endpoint.config());
+    }
+
     // ---- 状态栏 ----
 
     public EndpointStatus status(long now) {

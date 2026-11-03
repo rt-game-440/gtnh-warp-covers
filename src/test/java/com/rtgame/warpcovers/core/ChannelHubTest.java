@@ -253,7 +253,8 @@ class ChannelHubTest {
         attach("picky", picky, InteractionState.OUTPUT, "water");
         attach("open", open, InteractionState.OUTPUT, "water", "lava");
         hub.driveInput("in", 0);
-        assertEquals(300, picky.amountOf("water"));
+        assertEquals(150, picky.amountOf("water"), "两边都放行的水按默认的轮询平分");
+        assertEquals(150, open.amountOf("water"));
         assertEquals(0, picky.amountOf("lava"));
         assertEquals(200, open.amountOf("lava"));
         assertConserved(500, in, picky, open);
@@ -541,6 +542,328 @@ class ChannelHubTest {
             hub.driveInput("in", period * 20L);
             assertConserved(4500, in, o1, o2);
         }
+    }
+
+    // ---- 优先级与分发方式 ----
+
+    private EndpointConfig configOf(String id) {
+        return hub.findEndpoint(id)
+            .config();
+    }
+
+    @Test
+    void 优先级高的输出端先接收() {
+        FakeMachine in = new FakeMachine("A", 5000).with("water", 1000);
+        FakeMachine low = new FakeMachine("B", 5000);
+        FakeMachine high = new FakeMachine("C", 600);
+        attach("in", in, InteractionState.INPUT, "water");
+        attach("low", low, InteractionState.OUTPUT, "water");
+        attach("high", high, InteractionState.OUTPUT, "water");
+        configOf("high").setPriority(3);
+        hub.driveInput("in", 0);
+        assertEquals(600, high.total(), "高优先级先收满");
+        assertEquals(400, low.total(), "放不下的才给低优先级");
+        assertConserved(1000, in, low, high);
+    }
+
+    @Test
+    void 负优先级排在默认优先级之后() {
+        FakeMachine in = new FakeMachine("A", 5000).with("water", 100);
+        FakeMachine negative = new FakeMachine("B", 5000);
+        FakeMachine normal = new FakeMachine("C", 5000);
+        attach("in", in, InteractionState.INPUT, "water");
+        attach("neg", negative, InteractionState.OUTPUT, "water");
+        attach("normal", normal, InteractionState.OUTPUT, "water");
+        configOf("neg").setPriority(-1);
+        hub.driveInput("in", 0);
+        assertEquals(100, normal.total());
+        assertEquals(0, negative.total());
+        assertConserved(100, in, negative, normal);
+    }
+
+    @Test
+    void 新频道默认轮询且同级平均分配() {
+        assertEquals(DistributionMode.ROUND_ROBIN, channel.distribution());
+        FakeMachine in = new FakeMachine("A", 5000).with("water", 1000);
+        FakeMachine o1 = new FakeMachine("B", 5000);
+        FakeMachine o2 = new FakeMachine("C", 5000);
+        attach("in", in, InteractionState.INPUT, "water");
+        attach("o1", o1, InteractionState.OUTPUT, "water");
+        attach("o2", o2, InteractionState.OUTPUT, "water");
+        hub.driveInput("in", 0);
+        assertEquals(500, o1.total());
+        assertEquals(500, o2.total());
+        assertConserved(1000, in, o1, o2);
+    }
+
+    @Test
+    void 轮询指针让每周期一个单位轮流分给各输出端() {
+        FakeMachine in = new FakeMachine("A", 5000).with("water", 6);
+        FakeMachine o1 = new FakeMachine("B", 5000);
+        FakeMachine o2 = new FakeMachine("C", 5000);
+        FakeMachine o3 = new FakeMachine("D", 5000);
+        attach("in", in, InteractionState.INPUT, "water");
+        attach("o1", o1, InteractionState.OUTPUT, "water");
+        attach("o2", o2, InteractionState.OUTPUT, "water");
+        attach("o3", o3, InteractionState.OUTPUT, "water");
+        configOf("in").setRate(1);
+        hub.driveInput("in", 0);
+        assertEquals(1, o1.total());
+        hub.driveInput("in", 20);
+        assertEquals(1, o2.total());
+        hub.driveInput("in", 40);
+        assertEquals(1, o3.total());
+        for (int i = 3; i < 6; i++) {
+            hub.driveInput("in", i * 20L);
+        }
+        assertEquals(2, o1.total());
+        assertEquals(2, o2.total());
+        assertEquals(2, o3.total());
+        assertConserved(6, in, o1, o2, o3);
+    }
+
+    @Test
+    void 各优先级的轮询指针互相独立() {
+        FakeMachine in = new FakeMachine("A", 5000).with("water", 4);
+        FakeMachine h1 = new FakeMachine("B", 1);
+        FakeMachine h2 = new FakeMachine("C", 1);
+        FakeMachine l1 = new FakeMachine("D", 5000);
+        FakeMachine l2 = new FakeMachine("E", 5000);
+        attach("in", in, InteractionState.INPUT, "water");
+        attach("h1", h1, InteractionState.OUTPUT, "water");
+        attach("h2", h2, InteractionState.OUTPUT, "water");
+        attach("l1", l1, InteractionState.OUTPUT, "water");
+        attach("l2", l2, InteractionState.OUTPUT, "water");
+        configOf("h1").setPriority(1);
+        configOf("h2").setPriority(1);
+        configOf("in").setRate(1);
+        // 前两轮高优先级各收一个并装满，低优先级的指针不动，所以第三轮从 l1 开始
+        hub.driveInput("in", 0);
+        hub.driveInput("in", 20);
+        assertEquals(1, h1.total());
+        assertEquals(1, h2.total());
+        hub.driveInput("in", 40);
+        assertEquals(1, l1.total());
+        hub.driveInput("in", 60);
+        assertEquals(1, l2.total());
+        assertConserved(4, in, h1, h2, l1, l2);
+    }
+
+    @Test
+    void 顺序方式按连接顺序依次填满() {
+        hub.setDistribution(channel.id(), DistributionMode.SEQUENTIAL);
+        FakeMachine in = new FakeMachine("A", 5000).with("water", 1000);
+        FakeMachine o1 = new FakeMachine("B", 300);
+        FakeMachine o2 = new FakeMachine("C", 5000);
+        FakeMachine o3 = new FakeMachine("D", 5000);
+        attach("in", in, InteractionState.INPUT, "water");
+        attach("o1", o1, InteractionState.OUTPUT, "water");
+        attach("o2", o2, InteractionState.OUTPUT, "water");
+        attach("o3", o3, InteractionState.OUTPUT, "water");
+        hub.driveInput("in", 0);
+        assertEquals(300, o1.total());
+        assertEquals(700, o2.total());
+        assertEquals(0, o3.total());
+        assertConserved(1000, in, o1, o2, o3);
+    }
+
+    @Test
+    void 修改分发方式会标脏且不存在的频道返回假() {
+        int[] dirty = new int[1];
+        hub.setDirtyListener(() -> dirty[0]++);
+        assertTrue(hub.setDistribution(channel.id(), DistributionMode.SEQUENTIAL));
+        assertEquals(1, dirty[0]);
+        assertTrue(hub.setDistribution(channel.id(), DistributionMode.SEQUENTIAL));
+        assertEquals(1, dirty[0], "没有变化不标脏");
+        assertFalse(hub.setDistribution("nope", DistributionMode.SEQUENTIAL));
+    }
+
+    // ---- 单板速率与周期 ----
+
+    @Test
+    void 输入端每周期最多搬运单板速率() {
+        FakeMachine in = new FakeMachine("A", 5000).with("water", 1000);
+        FakeMachine out = new FakeMachine("B", 5000);
+        attach("in", in, InteractionState.INPUT, "water");
+        attach("out", out, InteractionState.OUTPUT, "water");
+        configOf("in").setRate(120);
+        assertEquals(
+            120,
+            hub.driveInput("in", 0)
+                .transferred());
+        assertEquals(
+            120,
+            hub.driveInput("in", 20)
+                .transferred());
+        assertConserved(1000, in, out);
+    }
+
+    @Test
+    void 实际配额是单板速率和全局上限中较小的() {
+        config.rateCap = 100;
+        FakeMachine in = new FakeMachine("A", 5000).with("water", 1000);
+        FakeMachine out = new FakeMachine("B", 5000);
+        attach("in", in, InteractionState.INPUT, "water");
+        attach("out", out, InteractionState.OUTPUT, "water");
+        configOf("in").setRate(500);
+        assertEquals(
+            100,
+            hub.driveInput("in", 0)
+                .transferred(),
+            "全局上限更小");
+        config.rateCap = 1000;
+        configOf("in").setRate(40);
+        assertEquals(
+            40,
+            hub.driveInput("in", 20)
+                .transferred(),
+            "单板速率更小");
+        assertConserved(1000, in, out);
+    }
+
+    @Test
+    void 输出端速率以它自身的周期为窗口() {
+        FakeMachine in = new FakeMachine("A", 5000).with("water", 1000);
+        FakeMachine out = new FakeMachine("B", 5000);
+        attach("in", in, InteractionState.INPUT, "water");
+        attach("out", out, InteractionState.OUTPUT, "water");
+        configOf("in").setPeriod(1);
+        configOf("out").setRate(100);
+        configOf("out").setPeriod(10);
+        long total = 0;
+        for (long t = 0; t < 10; t++) {
+            total += hub.driveInput("in", t)
+                .transferred();
+        }
+        assertEquals(100, total, "一个窗口内总共只收 100");
+        assertEquals(EndpointStatus.WAITING, hub.statusOf("in", 9), "额度用完时输入端等待，不算对端已满");
+        assertEquals(
+            100,
+            hub.driveInput("in", 10)
+                .transferred(),
+            "新窗口重新计数");
+        assertEquals(200, out.total());
+        assertConserved(1000, in, out);
+    }
+
+    @Test
+    void 多个输入端共用输出端的同一个窗口() {
+        FakeMachine in1 = new FakeMachine("A", 5000).with("water", 1000);
+        FakeMachine in2 = new FakeMachine("B", 5000).with("water", 1000);
+        FakeMachine out = new FakeMachine("C", 5000);
+        attach("in1", in1, InteractionState.INPUT, "water");
+        attach("in2", in2, InteractionState.INPUT, "water");
+        attach("out", out, InteractionState.OUTPUT, "water");
+        configOf("out").setRate(100);
+        assertEquals(
+            100,
+            hub.driveInput("in1", 0)
+                .transferred());
+        assertEquals(
+            0,
+            hub.driveInput("in2", 5)
+                .transferred(),
+            "窗口额度已被另一个输入端用完");
+        assertConserved(2000, in1, in2, out);
+    }
+
+    @Test
+    void 输出端窗口满额时余量流向其他输出端() {
+        FakeMachine in = new FakeMachine("A", 5000).with("water", 1000);
+        FakeMachine limited = new FakeMachine("B", 5000);
+        FakeMachine open = new FakeMachine("C", 5000);
+        attach("in", in, InteractionState.INPUT, "water");
+        attach("limited", limited, InteractionState.OUTPUT, "water");
+        attach("open", open, InteractionState.OUTPUT, "water");
+        configOf("limited").setPriority(1);
+        configOf("limited").setRate(150);
+        hub.driveInput("in", 0);
+        assertEquals(150, limited.total());
+        assertEquals(850, open.total());
+        assertConserved(1000, in, limited, open);
+    }
+
+    @Test
+    void 单板周期决定输入端运行间隔且修改后立即生效() {
+        FakeMachine in = new FakeMachine("A", 5000).with("water", 1000);
+        FakeMachine out = new FakeMachine("B", 5000);
+        attach("in", in, InteractionState.INPUT, "water");
+        attach("out", out, InteractionState.OUTPUT, "water");
+        configOf("in").setRate(10);
+        configOf("in").setPeriod(5);
+        hub.driveInput("in", 0);
+        assertEquals(
+            0,
+            hub.driveInput("in", 4)
+                .transferred());
+        assertEquals(
+            10,
+            hub.driveInput("in", 5)
+                .transferred());
+        configOf("in").setPeriod(50);
+        assertEquals(
+            0,
+            hub.driveInput("in", 10)
+                .transferred(),
+            "周期调长后立即按新周期算");
+        configOf("in").setPeriod(1);
+        assertEquals(
+            10,
+            hub.driveInput("in", 11)
+                .transferred(),
+            "周期调短后立即按新周期算");
+        assertConserved(1000, in, out);
+    }
+
+    @Test
+    void 调高最短周期后已有覆盖板立即按新下限运行() {
+        FakeMachine in = new FakeMachine("A", 5000).with("water", 1000);
+        FakeMachine out = new FakeMachine("B", 5000);
+        attach("in", in, InteractionState.INPUT, "water");
+        attach("out", out, InteractionState.OUTPUT, "water");
+        configOf("in").setRate(10);
+        configOf("in").setPeriod(5);
+        hub.driveInput("in", 0);
+        config.minPeriod = 100;
+        assertEquals(
+            0,
+            hub.driveInput("in", 5)
+                .transferred());
+        assertEquals(
+            0,
+            hub.driveInput("in", 99)
+                .transferred());
+        assertEquals(
+            10,
+            hub.driveInput("in", 100)
+                .transferred());
+        assertConserved(1000, in, out);
+    }
+
+    @Test
+    void 优先级速率周期混合运行多轮后总量守恒() {
+        FakeMachine in = new FakeMachine("A", 100000).with("water", 5000)
+            .with("lava", 3000);
+        FakeMachine high = new FakeMachine("B", 500);
+        FakeMachine liar = new FakeMachine("C", 1500);
+        liar.insertShortfall = 3;
+        FakeMachine low = new FakeMachine("D", 100000);
+        attach("in", in, InteractionState.INPUT, "water", "lava");
+        attach("high", high, InteractionState.OUTPUT, "water");
+        attach("liar", liar, InteractionState.OUTPUT, "water", "lava");
+        attach("low", low, InteractionState.OUTPUT, "water", "lava");
+        configOf("high").setPriority(2);
+        configOf("high").setRate(77);
+        configOf("liar").setPriority(1);
+        configOf("liar").setRate(50);
+        configOf("liar").setPeriod(40);
+        configOf("in").setRate(191);
+        configOf("in").setPeriod(7);
+        for (long t = 0; t < 2000; t++) {
+            hub.driveInput("in", t);
+            assertConserved(8000, in, high, liar, low);
+        }
+        assertEquals(0, in.total(), "最终全部搬完");
     }
 
     // ---- 能量频道 ----

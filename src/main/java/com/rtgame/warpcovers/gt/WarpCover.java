@@ -6,9 +6,9 @@ import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.item.ItemStack;
 import net.minecraft.nbt.NBTBase;
 import net.minecraft.nbt.NBTTagCompound;
+import net.minecraft.server.MinecraftServer;
 import net.minecraftforge.common.util.ForgeDirection;
 
-import com.rtgame.warpcovers.ServerConfig;
 import com.rtgame.warpcovers.core.ChannelType;
 import com.rtgame.warpcovers.core.DisconnectReason;
 import com.rtgame.warpcovers.core.EndpointConfig;
@@ -16,6 +16,7 @@ import com.rtgame.warpcovers.core.FilterList;
 import com.rtgame.warpcovers.core.InteractionState;
 import com.rtgame.warpcovers.core.MachinePort;
 import com.rtgame.warpcovers.core.PanelEndpoint;
+import com.rtgame.warpcovers.core.Periods;
 
 import gregtech.api.covers.CoverContext;
 import gregtech.api.interfaces.ITexture;
@@ -137,8 +138,15 @@ public abstract class WarpCover extends Cover implements EndpointCarrier, PanelE
 
     @Override
     public int getMinimumTickRate() {
-        // 核心按配置的周期自己判断是否到期；覆盖板每个周期被 GT 调用一次
-        return Math.max(1, ServerConfig.defaultPeriodTicks);
+        // GT 每 tick 都读这个值，所以改周期立即生效；是否到期由核心判断。endpoint 在父类构造期间还没赋值
+        if (endpoint == null) {
+            return Periods.MAX_TICK_INTERVAL;
+        }
+        return Periods.tickInterval(
+            Periods.effectivePeriod(
+                endpoint.config()
+                    .period(),
+                WarpServices.CONFIG));
     }
 
     @Override
@@ -172,9 +180,20 @@ public abstract class WarpCover extends Cover implements EndpointCarrier, PanelE
 
     @Override
     public void doCoverThings(byte aRedstone, long aTickTimer) {
+        // 不用 aTickTimer：那是每台机器各自的计时器。同一频道的连接端必须共用一个时钟，输出端的接收窗口才成立
+        ICoverable tile = getTile();
+        if (tile != null && tile.isServerSide()) {
+            tickAt(
+                MinecraftServer.getServer()
+                    .getTickCounter());
+        }
+    }
+
+    /** 以指定时间运行一次（自检场景用它控制时间）。 */
+    public void tickAt(long now) {
         ICoverable tile = getTile();
         if (tile != null) {
-            endpoint.tick(tile, coverSide, aTickTimer);
+            endpoint.tick(tile, coverSide, now);
         }
     }
 

@@ -53,6 +53,13 @@ warpcovers.gui.filter.remove=从名单中移除
 warpcovers.gui.energy.no_filter=能量覆盖板没有过滤名单。
 warpcovers.gui.energy.direct=输出端把 EU 直接充进机器的内部储能，最多充满为止：不检查电压和电流，不会爆炸，也没有损耗。
 warpcovers.gui.energy.source=输入端只从会向外供电的机器（发电机、电池箱、变压器等）抽取 EU。
+warpcovers.gui.field.priority=输出优先级
+warpcovers.gui.field.rate=速率
+warpcovers.gui.field.period=周期(tick)
+warpcovers.gui.field.unlimited=不限
+warpcovers.gui.field.priority_tip=输出优先级：可为负数，数值大的输出端先接收。默认 0
+warpcovers.gui.field.rate_tip=每个周期最多搬运多少，0 表示不限（仍受服务器上限约束）。当前实际：%s
+warpcovers.gui.field.period_tip=每隔多少 tick 运行一次，0 表示跟随服务器默认周期。当前实际：%d tick
 warpcovers.gui.status=状态：%s
 warpcovers.gui.reason=最近断开：%s
 

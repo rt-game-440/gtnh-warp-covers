@@ -15,6 +15,7 @@ import java.util.List;
 
 import net.minecraft.nbt.CompressedStreamTools;
 import net.minecraft.nbt.NBTTagCompound;
+import net.minecraft.nbt.NBTTagList;
 
 import org.junit.jupiter.api.Test;
 
@@ -24,6 +25,7 @@ import com.rtgame.warpcovers.core.ChannelHub;
 import com.rtgame.warpcovers.core.ChannelType;
 import com.rtgame.warpcovers.core.ConfigPort;
 import com.rtgame.warpcovers.core.DisconnectReason;
+import com.rtgame.warpcovers.core.DistributionMode;
 import com.rtgame.warpcovers.core.Endpoint;
 import com.rtgame.warpcovers.core.EndpointConfig;
 import com.rtgame.warpcovers.core.FilterList;
@@ -129,6 +131,38 @@ class HubNbtTest {
         assertEquals(0xB3312C, back.color());
         assertEquals("player:uuid-a", back.ownerId());
         assertEquals("Alice", back.ownerName());
+    }
+
+    @Test
+    void 分发方式存档往返且旧存档默认轮询() throws IOException {
+        ChannelHub hub = new ChannelHub(CONFIG);
+        Channel sequential = hub.createChannel(ChannelType.FLUID, "顺序频道");
+        Channel roundRobin = hub.createChannel(ChannelType.FLUID, "轮询频道");
+        hub.setDistribution(sequential.id(), DistributionMode.SEQUENTIAL);
+
+        NBTTagCompound root = throughBytes(HubNbt.write(hub));
+        ChannelHub restored = new ChannelHub(CONFIG);
+        HubNbt.read(root, restored);
+        assertEquals(
+            DistributionMode.SEQUENTIAL,
+            restored.findChannel(sequential.id())
+                .distribution());
+        assertEquals(
+            DistributionMode.ROUND_ROBIN,
+            restored.findChannel(roundRobin.id())
+                .distribution());
+
+        NBTTagList channels = root.getTagList("channels", 10);
+        for (int i = 0; i < channels.tagCount(); i++) {
+            channels.getCompoundTagAt(i)
+                .removeTag("distribution");
+        }
+        ChannelHub old = new ChannelHub(CONFIG);
+        HubNbt.read(root, old);
+        assertEquals(
+            DistributionMode.ROUND_ROBIN,
+            old.findChannel(sequential.id())
+                .distribution());
     }
 
     @Test

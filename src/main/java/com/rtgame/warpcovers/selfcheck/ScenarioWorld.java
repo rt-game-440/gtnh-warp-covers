@@ -247,7 +247,7 @@ final class ScenarioWorld {
 
     static void runCovers(long now, WarpCover... covers) {
         for (WarpCover cover : covers) {
-            cover.doCoverThings((byte) 0, now);
+            cover.tickAt(now);
         }
     }
 

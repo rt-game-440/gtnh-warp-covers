@@ -4,10 +4,13 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.TreeMap;
 import java.util.UUID;
 
 /**
@@ -32,6 +35,8 @@ public final class ChannelHub {
     /** 未加载时被断开的连接端：等覆盖板下次加载时告诉它原因。 */
     private final Map<String, Tombstone> tombstones = new HashMap<String, Tombstone>();
     private long nextConnectOrder = 0;
+    /** 轮询指针，键为「频道 ID#优先级」；只在内存里，重启后从头开始。 */
+    private final Map<String, Long> roundRobinPointers = new HashMap<String, Long>();
     private Runnable dirtyListener = NO_LISTENER;
 
     public ChannelHub(ConfigPort config) {
@@ -123,6 +128,14 @@ public final class ChannelHub {
         if (channel == null) {
             return;
         }
+        Iterator<String> pointers = roundRobinPointers.keySet()
+            .iterator();
+        while (pointers.hasNext()) {
+            if (pointers.next()
+                .startsWith(channelId + "#")) {
+                pointers.remove();
+            }
+        }
         for (Endpoint endpoint : new ArrayList<Endpoint>(channel.endpoints())) {
             endpoints.remove(endpoint.endpointId());
             EndpointHost host = endpoint.host();
@@ -131,6 +144,21 @@ public final class ChannelHub {
             }
         }
         markDirty();
+    }
+
+    /**
+     * 修改频道的分发方式（权限由调用方检查）。频道不存在返回 false。
+     */
+    public boolean setDistribution(String channelId, DistributionMode mode) {
+        Channel channel = channels.get(channelId);
+        if (channel == null || mode == null) {
+            return false;
+        }
+        if (channel.distribution() != mode) {
+            channel.setDistribution(mode);
+            markDirty();
+        }
+        return true;
     }
 
     // ---- 连接端 ----
@@ -329,7 +357,14 @@ public final class ChannelHub {
     }
 
     public void restoreChannel(String id, ChannelType type, String name, int color, String ownerId, String ownerName) {
-        channels.put(id, new Channel(id, type, name, color, ownerId, ownerName));
+        restoreChannel(id, type, name, color, ownerId, ownerName, DistributionMode.ROUND_ROBIN);
+    }
+
+    public void restoreChannel(String id, ChannelType type, String name, int color, String ownerId, String ownerName,
+        DistributionMode distribution) {
+        Channel channel = new Channel(id, type, name, color, ownerId, ownerName);
+        channel.setDistribution(distribution);
+        channels.put(id, channel);
     }
 
     /** 恢复一条索引；频道不存在时丢弃。调用前须先恢复频道。 */
@@ -365,24 +400,28 @@ public final class ChannelHub {
 
     /**
      * 输入端的运行周期到期时由调用方调用。没到期、不是输入状态、本端或类型不可用时什么都不做。
+     * 周期按上一次运行时间计算，所以修改周期或调高服务器最短周期都会立即生效。
      *
-     * @param now 当前世界时间（tick），由调用方提供
+     * @param now 当前时间（tick），由调用方提供；所有连接端必须用同一个时钟，输出端的接收窗口才有意义
      */
     public TransferResult driveInput(String endpointId, long now) {
         Endpoint input = endpoints.get(endpointId);
         if (input == null || input.state() != InteractionState.INPUT || !input.isLoaded()) {
             return TransferResult.NONE;
         }
-        // 调用方的时钟回退（机器重载后计时器归零）：旧的到期时间已无意义，否则会长时间停转
+        // 调用方的时钟回退（服务器重启后计数归零）：旧的运行时间已无意义，否则会长时间停转
         if (now < input.lastSeenTime()) {
-            input.setNextRunTime(Long.MIN_VALUE);
+            input.setLastRunTime(Long.MIN_VALUE);
         }
         input.setLastSeenTime(now);
         Channel channel = channels.get(input.channelId());
-        if (channel == null || !config.isEnabled(channel.type()) || now < input.nextRunTime()) {
+        if (channel == null || !config.isEnabled(channel.type())) {
             return TransferResult.NONE;
         }
-        input.setNextRunTime(now + periodOf(input));
+        if (input.lastRunTime() != Long.MIN_VALUE && now - input.lastRunTime() < effectivePeriod(input.config())) {
+            return TransferResult.NONE;
+        }
+        input.setLastRunTime(now);
 
         List<Endpoint> outputs = collectOutputs(channel, input);
         if (outputs.isEmpty()) {
@@ -390,8 +429,8 @@ public final class ChannelHub {
             input.setStatus(missing == null ? EndpointStatus.NO_PEER : missing, now);
             return TransferResult.NONE;
         }
-        long cap = config.globalRateCap(channel.type());
-        long quota = cap <= 0 ? Long.MAX_VALUE : cap;
+        Delivery delivery = new Delivery(input, channel, outputs, now);
+        long quota = effectiveRate(channel.type(), input.config());
         long transferred = 0;
         long lost = 0;
         boolean anyOffered = false;
@@ -413,11 +452,12 @@ public final class ChannelHub {
             if (anyAllows(outputs, offered.key())) {
                 anyAllowedByPeer = true;
             }
-            TransferResult moved = moveKey(input, outputs, offered.key(), Math.min(offered.amount(), quota), now);
+            TransferResult moved = delivery.moveKey(offered.key(), Math.min(offered.amount(), quota));
             transferred += moved.transferred();
             lost += moved.lost();
             quota -= moved.transferred();
         }
+        delivery.advancePointers();
         EndpointStatus status;
         if (transferred > 0) {
             status = EndpointStatus.TRANSFERRING;
@@ -425,6 +465,9 @@ public final class ChannelHub {
             status = EndpointStatus.SOURCE_EMPTY;
         } else if (!anyAllowedBySelf || !anyAllowedByPeer) {
             status = EndpointStatus.FILTERED;
+        } else if (delivery.windowLimited) {
+            // 输出端本窗口的额度用完了，下个窗口还会继续收
+            status = EndpointStatus.WAITING;
         } else {
             status = EndpointStatus.PEER_FULL;
         }
@@ -432,9 +475,14 @@ public final class ChannelHub {
         return new TransferResult(transferred, lost);
     }
 
-    /** 实际运行周期（tick）。 */
-    private long periodOf(Endpoint endpoint) {
-        return Math.max(1, Math.max(config.minPeriodTicks(), config.defaultPeriodTicks()));
+    /** 该配置的实际运行周期（tick）。 */
+    public long effectivePeriod(EndpointConfig endpointConfig) {
+        return Periods.effectivePeriod(endpointConfig.period(), config);
+    }
+
+    /** 该配置的实际速率（每周期最多搬运多少）；{@link Long#MAX_VALUE} 表示不限。 */
+    public long effectiveRate(ChannelType type, EndpointConfig endpointConfig) {
+        return Periods.effectiveRate(endpointConfig.rate(), config.globalRateCap(type));
     }
 
     private boolean anyAllows(List<Endpoint> outputs, String key) {
@@ -503,7 +551,7 @@ public final class ChannelHub {
         }
         EndpointStatus last = endpoint.lastStatus();
         long age = now - endpoint.lastStatusTime();
-        if (last != null && age >= 0 && age <= 2 * periodOf(endpoint) + 20) {
+        if (last != null && age >= 0 && age <= 2 * effectivePeriod(endpoint.config()) + 20) {
             return last;
         }
         return EndpointStatus.WAITING;
@@ -525,42 +573,128 @@ public final class ChannelHub {
         return outputs;
     }
 
-    /** 把一种物体依次送给各输出端。返回实际搬运量与丢失量。先模拟、再实际抽取、再插入。 */
-    private TransferResult moveKey(Endpoint input, List<Endpoint> outputs, String key, long want, long now) {
-        long remaining = want;
-        long moved = 0;
-        long lost = 0;
-        for (Endpoint output : outputs) {
-            if (remaining <= 0) {
-                break;
+    /** 输入端一次运行的分发过程：优先级从高到低，同级内按频道的分发方式分配。 */
+    private final class Delivery {
+
+        private final Endpoint input;
+        private final Channel channel;
+        private final List<Endpoint> outputs;
+        private final long now;
+        /** 按优先级从高到低分组，组内保持连接顺序。 */
+        private final TreeMap<Integer, List<Endpoint>> tiers = new TreeMap<Integer, List<Endpoint>>(
+            Collections.<Integer>reverseOrder());
+        /** 本次运行实际收到东西的优先级：只有它们的轮询指针前进。 */
+        private final Set<Integer> served = new HashSet<Integer>();
+        /** 本次运行有输出端因为窗口额度用完而没收。 */
+        boolean windowLimited = false;
+
+        Delivery(Endpoint input, Channel channel, List<Endpoint> outputs, long now) {
+            this.input = input;
+            this.channel = channel;
+            this.outputs = outputs;
+            this.now = now;
+            for (Endpoint output : outputs) {
+                int priority = output.config()
+                    .priority();
+                List<Endpoint> tier = tiers.get(priority);
+                if (tier == null) {
+                    tier = new ArrayList<Endpoint>();
+                    tiers.put(priority, tier);
+                }
+                tier.add(output);
             }
+        }
+
+        /** 把一种物体分给各输出端。返回实际搬运量与丢失量。先模拟、再实际抽取、再插入。 */
+        TransferResult moveKey(String key, long want) {
+            long remaining = want;
+            long moved = 0;
+            long lost = 0;
+            for (Map.Entry<Integer, List<Endpoint>> entry : tiers.entrySet()) {
+                if (remaining <= 0) {
+                    break;
+                }
+                List<Endpoint> order = distributionOrder(entry.getKey(), entry.getValue());
+                long[] room = new long[order.size()];
+                for (int i = 0; i < room.length; i++) {
+                    room[i] = roomFor(order.get(i), key, remaining);
+                }
+                long[] shares = channel.distribution()
+                    .allocate(remaining, room);
+                for (int i = 0; i < shares.length; i++) {
+                    if (shares[i] <= 0) {
+                        continue;
+                    }
+                    Endpoint output = order.get(i);
+                    long taken = input.port()
+                        .extract(key, shares[i], false);
+                    if (taken <= 0) {
+                        return new TransferResult(moved, lost);
+                    }
+                    long inserted = Math.min(
+                        taken,
+                        output.port()
+                            .insert(key, taken, false));
+                    if (inserted < taken) {
+                        lost += giveBack(input, outputs, output, key, taken - inserted);
+                    }
+                    output.addReceived(inserted);
+                    output.noteReceived(inserted > 0 ? EndpointStatus.TRANSFERRING : EndpointStatus.SELF_FULL, now);
+                    if (inserted > 0) {
+                        served.add(entry.getKey());
+                    }
+                    moved += inserted;
+                    remaining -= inserted;
+                }
+            }
+            return new TransferResult(moved, lost);
+        }
+
+        /** 这个输出端这次最多收多少：名单、自身窗口额度、机器模拟插入三者取小。 */
+        private long roomFor(Endpoint output, String key, long want) {
             if (!allows(output, key)) {
                 output.noteReceived(EndpointStatus.FILTERED, now);
-                continue;
+                return 0;
             }
+            long window = output
+                .windowRemaining(now, effectiveRate(channel.type(), output.config()), effectivePeriod(output.config()));
+            if (window <= 0) {
+                windowLimited = true;
+                return 0;
+            }
+            long limit = Math.min(want, window);
             long accept = output.port()
-                .insert(key, remaining, true);
+                .insert(key, limit, true);
             if (accept <= 0) {
                 output.noteReceived(EndpointStatus.SELF_FULL, now);
-                continue;
+                return 0;
             }
-            long taken = input.port()
-                .extract(key, Math.min(accept, remaining), false);
-            if (taken <= 0) {
-                break;
-            }
-            long inserted = Math.min(
-                taken,
-                output.port()
-                    .insert(key, taken, false));
-            if (inserted < taken) {
-                lost += giveBack(input, outputs, output, key, taken - inserted);
-            }
-            output.noteReceived(inserted > 0 ? EndpointStatus.TRANSFERRING : EndpointStatus.SELF_FULL, now);
-            moved += inserted;
-            remaining -= inserted;
+            return Math.min(accept, limit);
         }
-        return new TransferResult(moved, lost);
+
+        /** 轮询时从指针位置开始，顺序时就是连接顺序。 */
+        private List<Endpoint> distributionOrder(int priority, List<Endpoint> tier) {
+            if (channel.distribution() != DistributionMode.ROUND_ROBIN || tier.size() < 2) {
+                return tier;
+            }
+            Long pointer = roundRobinPointers.get(channel.id() + "#" + priority);
+            int start = pointer == null ? 0 : (int) (pointer % tier.size());
+            List<Endpoint> order = new ArrayList<Endpoint>(tier.size());
+            order.addAll(tier.subList(start, tier.size()));
+            order.addAll(tier.subList(0, start));
+            return order;
+        }
+
+        void advancePointers() {
+            if (channel.distribution() != DistributionMode.ROUND_ROBIN) {
+                return;
+            }
+            for (int priority : served) {
+                String key = channel.id() + "#" + priority;
+                Long pointer = roundRobinPointers.get(key);
+                roundRobinPointers.put(key, pointer == null ? 1L : pointer + 1);
+            }
+        }
     }
 
     /** 插入不足时把余量退回：先退给来源，来源不收再试其他输出端。返回仍无处可退的量。 */
@@ -576,10 +710,12 @@ public final class ChannelHub {
             if (other == refused || !allows(other, key)) {
                 continue;
             }
-            rest -= Math.min(
+            long rescued = Math.min(
                 rest,
                 other.port()
                     .insert(key, rest, false));
+            other.addReceived(rescued);
+            rest -= rescued;
         }
         return rest;
     }

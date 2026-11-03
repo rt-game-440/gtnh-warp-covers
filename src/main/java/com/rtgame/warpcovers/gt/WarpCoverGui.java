@@ -32,6 +32,7 @@ import com.cleanroommc.modularui.value.StringValue;
 import com.cleanroommc.modularui.value.sync.DynamicLinkedSyncHandler;
 import com.cleanroommc.modularui.value.sync.FluidSlotSyncHandler;
 import com.cleanroommc.modularui.value.sync.GenericSyncValue;
+import com.cleanroommc.modularui.value.sync.LongSyncValue;
 import com.cleanroommc.modularui.value.sync.PanelSyncManager;
 import com.cleanroommc.modularui.widget.ParentWidget;
 import com.cleanroommc.modularui.widgets.ButtonWidget;
@@ -53,6 +54,7 @@ import com.rtgame.warpcovers.core.ChannelType;
 import com.rtgame.warpcovers.core.CoverPanel;
 import com.rtgame.warpcovers.core.CreateFailure;
 import com.rtgame.warpcovers.core.InteractionState;
+import com.rtgame.warpcovers.core.NumberInput;
 import com.rtgame.warpcovers.core.ObjectKeys;
 import com.rtgame.warpcovers.core.Viewer;
 
@@ -76,6 +78,10 @@ public final class WarpCoverGui extends CoverBaseGui<WarpCover> {
     private static final int ROW_W = PAGE_W - 8;
     private static final int ROW_H = 14;
     private static final int STATUS_Y = PAGE_H + 4;
+    /** 设置页：顶部一行数字输入框，下面是过滤名单。 */
+    private static final int FIELD_GAP = 3;
+    private static final int FILTER_Y = 25;
+    private static final int LIST_Y = FILTER_Y + 42;
 
     private static final int TEXT_COLOR = 0xFF555555;
     private static final int OWNER_COLOR = 0xFF888888;
@@ -128,6 +134,11 @@ public final class WarpCoverGui extends CoverBaseGui<WarpCover> {
         private final NbtValue channels;
         private final NbtValue filter;
         private final NbtValue status;
+        private final LongSyncValue priority;
+        private final LongSyncValue rate;
+        private final LongSyncValue period;
+        private final LongSyncValue effectiveRate;
+        private final LongSyncValue effectivePeriod;
         private IPanelHandler createDialog;
 
         Session(PanelSyncManager sync) {
@@ -155,6 +166,40 @@ public final class WarpCoverGui extends CoverBaseGui<WarpCover> {
             sync.syncValue("warpcovers_channels", channels);
             sync.syncValue("warpcovers_filter", filter);
             sync.syncValue("warpcovers_status", status);
+            priority = new LongSyncValue(
+                () -> client ? 0
+                    : cover.config()
+                        .priority(),
+                value -> {
+                    if (!client) {
+                        panel.setPriority((int) NumberInput.clamp(value, Integer.MIN_VALUE, Integer.MAX_VALUE));
+                    }
+                });
+            rate = new LongSyncValue(
+                () -> client ? 0
+                    : cover.config()
+                        .rate(),
+                value -> {
+                    if (!client) {
+                        panel.setRate(value);
+                    }
+                });
+            period = new LongSyncValue(
+                () -> client ? 0
+                    : cover.config()
+                        .period(),
+                value -> {
+                    if (!client) {
+                        panel.setPeriod((int) NumberInput.clamp(value, 0, Integer.MAX_VALUE));
+                    }
+                });
+            effectiveRate = new LongSyncValue(() -> client ? 0 : panel.effectiveRate());
+            effectivePeriod = new LongSyncValue(() -> client ? 0 : panel.effectivePeriod());
+            sync.syncValue("warpcovers_priority", priority);
+            sync.syncValue("warpcovers_rate", rate);
+            sync.syncValue("warpcovers_period", period);
+            sync.syncValue("warpcovers_effective_rate", effectiveRate);
+            sync.syncValue("warpcovers_effective_period", effectivePeriod);
 
             action("create", buf -> {
                 String name = NetworkUtils.readStringSafe(buf);
@@ -459,13 +504,14 @@ public final class WarpCoverGui extends CoverBaseGui<WarpCover> {
         private IWidget settingsPage() {
             ParentWidget<?> page = new ParentWidget<>();
             page.size(PAGE_W, PAGE_H);
+            addTransferFields(page);
             if (!cover.channelType()
                 .hasFilter()) {
                 return energyNotes(page);
             }
 
             ButtonWidget<?> mode = new ButtonWidget<>();
-            mode.pos(0, 0)
+            mode.pos(0, FILTER_Y)
                 .size(16, 16)
                 .overlay(
                     new DynamicDrawable(
@@ -482,12 +528,12 @@ public final class WarpCoverGui extends CoverBaseGui<WarpCover> {
                 IKey.dynamic(
                     () -> tr(isWhitelist() ? "warpcovers.gui.filter.whitelist" : "warpcovers.gui.filter.blacklist"))
                     .asWidget()
-                    .pos(20, 4)
+                    .pos(20, FILTER_Y + 4)
                     .size(PAGE_W - 44, 9)
                     .color(TEXT_COLOR));
 
             ButtonWidget<?> clear = new ButtonWidget<>();
-            clear.pos(PAGE_W - 18, 0)
+            clear.pos(PAGE_W - 18, FILTER_Y)
                 .size(16, 16)
                 .overlay(GTGuiTextures.OVERLAY_BUTTON_CROSS)
                 .addTooltipLine(tr("warpcovers.gui.filter.clear"));
@@ -500,7 +546,7 @@ public final class WarpCoverGui extends CoverBaseGui<WarpCover> {
             Consumer<String> addKey = client ? null : key -> panel.addFilterKey(key);
             if (isItem()) {
                 ButtonWidget<?> nbt = new ButtonWidget<>();
-                nbt.pos(PAGE_W - 38, 0)
+                nbt.pos(PAGE_W - 38, FILTER_Y)
                     .size(16, 16)
                     .background(
                         new DynamicDrawable(
@@ -518,7 +564,7 @@ public final class WarpCoverGui extends CoverBaseGui<WarpCover> {
                 page.child(nbt);
 
                 PhantomItemSlot slot = new PhantomItemSlot().slot(new ModularSlot(new FilterInputInventory(addKey), 0));
-                slot.pos(0, 20)
+                slot.pos(0, FILTER_Y + 20)
                     .addTooltipLine(tr("warpcovers.gui.filter.add_item"));
                 page.child(slot);
             } else {
@@ -527,14 +573,14 @@ public final class WarpCoverGui extends CoverBaseGui<WarpCover> {
                 slot.syncHandler(
                     new FluidSlotSyncHandler(tank).phantom(true)
                         .controlsAmount(false))
-                    .pos(0, 20)
+                    .pos(0, FILTER_Y + 20)
                     .addTooltipLine(tr("warpcovers.gui.filter.add"));
                 page.child(slot);
             }
             page.child(
                 IKey.lang(isItem() ? "warpcovers.gui.filter.hint_item" : "warpcovers.gui.filter.hint")
                     .asWidget()
-                    .pos(22, 25)
+                    .pos(22, FILTER_Y + 25)
                     .size(PAGE_W - 24, 9)
                     .scale(0.8F)
                     .color(OWNER_COLOR));
@@ -543,15 +589,76 @@ public final class WarpCoverGui extends CoverBaseGui<WarpCover> {
                 .widgetProvider((manager, value) -> filterList(PanelSnapshot.parseFilter(value.getValue())));
             DynamicSyncedWidget<?> holder = new DynamicSyncedWidget<>();
             holder.syncHandler(dynamic)
-                .pos(0, 42)
-                .size(PAGE_W, PAGE_H - 42);
+                .pos(0, LIST_Y)
+                .size(PAGE_W, PAGE_H - LIST_Y);
             page.child(holder);
             return page;
         }
 
+        /** 输出优先级、速率、运行周期：各类型共用的一行输入框，失去焦点或回车时提交到服务端。 */
+        private void addTransferFields(ParentWidget<?> page) {
+            int width = (PAGE_W - 2 * FIELD_GAP) / 3;
+            addNumberField(
+                page,
+                0,
+                width,
+                "warpcovers.gui.field.priority",
+                priority,
+                Integer.MIN_VALUE,
+                Integer.MAX_VALUE,
+                () -> tr("warpcovers.gui.field.priority_tip"));
+            addNumberField(
+                page,
+                width + FIELD_GAP,
+                width,
+                "warpcovers.gui.field.rate",
+                rate,
+                0,
+                Long.MAX_VALUE,
+                this::rateTooltip);
+            addNumberField(
+                page,
+                2 * (width + FIELD_GAP),
+                width,
+                "warpcovers.gui.field.period",
+                period,
+                0,
+                Integer.MAX_VALUE,
+                this::periodTooltip);
+        }
+
+        private void addNumberField(ParentWidget<?> page, int x, int width, String labelKey, LongSyncValue value,
+            long min, long max, Supplier<String> tooltip) {
+            page.child(
+                IKey.lang(labelKey)
+                    .asWidget()
+                    .pos(x, 0)
+                    .size(width, 9)
+                    .color(TEXT_COLOR));
+            TextFieldWidget field = new TextFieldWidget();
+            field.value(value)
+                .setValidator(text -> NumberInput.normalize(text, min, max));
+            field.pos(x, 10)
+                .size(width, 12)
+                .tooltipDynamic(lines -> lines.addLine(tooltip.get()))
+                .tooltipAutoUpdate(true);
+            page.child(field);
+        }
+
+        private String rateTooltip() {
+            long effective = effectiveRate.getLongValue();
+            String actual = effective == Long.MAX_VALUE ? tr("warpcovers.gui.field.unlimited")
+                : Long.toString(effective);
+            return tr("warpcovers.gui.field.rate_tip", actual);
+        }
+
+        private String periodTooltip() {
+            return tr("warpcovers.gui.field.period_tip", effectivePeriod.getLongValue());
+        }
+
         private IWidget filterList(PanelSnapshot.FilterView view) {
             ListWidget<IWidget, ?> list = new ListWidget<>();
-            list.size(PAGE_W, PAGE_H - 42);
+            list.size(PAGE_W, PAGE_H - LIST_Y);
             if (view.keys.isEmpty()) {
                 list.child(
                     IKey.lang("warpcovers.gui.filter.empty")
@@ -647,7 +754,7 @@ public final class WarpCoverGui extends CoverBaseGui<WarpCover> {
             String[] keys = { "warpcovers.gui.energy.no_filter", "warpcovers.gui.energy.direct",
                 "warpcovers.gui.energy.source" };
             int[] heights = { 10, 30, 30 };
-            int y = 2;
+            int y = FILTER_Y + 2;
             for (int i = 0; i < keys.length; i++) {
                 page.child(
                     IKey.lang(keys[i])
