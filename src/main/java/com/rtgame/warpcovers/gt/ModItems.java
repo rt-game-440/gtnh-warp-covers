@@ -32,6 +32,8 @@ public final class ModItems {
 
     /** 注册物品并把它登记为 GT 覆盖板。必须在 GT 完成预加载之后（init 阶段）调用。 */
     public static void register() {
+        CoverMarkTextures.register();
+
         fluidCover = new WarpCoverItem();
         fluidCover.setUnlocalizedName(WarpCovers.MODID + ".cover.fluid");
         fluidCover.setTextureName(WarpCovers.MODID + ":warp_cover_fluid");

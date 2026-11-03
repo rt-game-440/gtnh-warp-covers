@@ -1,5 +1,7 @@
 package com.rtgame.warpcovers.gt;
 
+import java.util.Locale;
+
 import javax.annotation.Nonnull;
 
 import net.minecraft.entity.player.EntityPlayer;
@@ -7,8 +9,12 @@ import net.minecraft.item.ItemStack;
 import net.minecraft.nbt.NBTBase;
 import net.minecraft.nbt.NBTTagCompound;
 import net.minecraft.server.MinecraftServer;
+import net.minecraft.util.StatCollector;
 import net.minecraftforge.common.util.ForgeDirection;
 
+import com.google.common.io.ByteArrayDataInput;
+import com.rtgame.warpcovers.core.Channel;
+import com.rtgame.warpcovers.core.ChannelHub;
 import com.rtgame.warpcovers.core.ChannelType;
 import com.rtgame.warpcovers.core.DisconnectReason;
 import com.rtgame.warpcovers.core.EndpointConfig;
@@ -21,8 +27,10 @@ import com.rtgame.warpcovers.core.Periods;
 import gregtech.api.covers.CoverContext;
 import gregtech.api.interfaces.ITexture;
 import gregtech.api.interfaces.tileentity.ICoverable;
+import gregtech.api.interfaces.tileentity.IGregTechTileEntity;
 import gregtech.common.covers.Cover;
 import gregtech.common.gui.modularui.cover.base.CoverBaseGui;
+import io.netty.buffer.ByteBuf;
 
 /**
  * 单类型折跃覆盖板：GT 覆盖板与频道核心之间的适配层。
@@ -32,6 +40,10 @@ import gregtech.common.gui.modularui.cover.base.CoverBaseGui;
 public abstract class WarpCover extends Cover implements EndpointCarrier, PanelEndpoint {
 
     private final CoverEndpoint endpoint;
+    /** 客户端最近收到的显示信息。 */
+    private CoverVisual visual = CoverVisual.UNCONNECTED;
+    /** 按 visual 合成的贴图缓存；外观变化时清空。 */
+    private ITexture composedTexture;
 
     protected WarpCover(@Nonnull CoverContext context, ITexture coverTexture) {
         super(context, coverTexture);
@@ -48,6 +60,7 @@ public abstract class WarpCover extends Cover implements EndpointCarrier, PanelE
                 ICoverable tile = getTile();
                 if (tile != null) {
                     CoverEndpoint.markTileDirty(tile);
+                    tile.issueCoverUpdate(coverSide);
                 }
             }
         });
@@ -238,6 +251,87 @@ public abstract class WarpCover extends Cover implements EndpointCarrier, PanelE
     @Override
     public boolean alwaysLookConnected() {
         return true;
+    }
+
+    // ---- 外观与 WAILA ----
+
+    /** 服务端按当前频道算出显示信息；客户端返回最近收到的。 */
+    public CoverVisual currentVisual() {
+        ICoverable tile = getTile();
+        if (tile == null || !tile.isServerSide() || !WarpServices.isInstalled()) {
+            return visual;
+        }
+        ChannelHub hub = WarpServices.hub();
+        Channel channel = hub.findChannel(endpoint.channelId());
+        if (channel == null) {
+            return CoverVisual.UNCONNECTED;
+        }
+        return new CoverVisual(
+            true,
+            channel.color(),
+            state(),
+            channel.name(),
+            hub.effectiveRate(channelType(), config()),
+            hub.statusOf(
+                endpoint.endpointId(),
+                MinecraftServer.getServer()
+                    .getTickCounter())
+                .key());
+    }
+
+    @Override
+    public boolean isDataNeededOnClient() {
+        return true;
+    }
+
+    @Override
+    protected void writeDataToByteBuf(ByteBuf buf) {
+        currentVisual().write(buf);
+    }
+
+    @Override
+    protected void readDataFromPacket(ByteArrayDataInput in) {
+        CoverVisual next = CoverVisual.read(in);
+        boolean lookChanged = !next.sameLook(visual);
+        visual = next;
+        if (lookChanged) {
+            composedTexture = null;
+            ICoverable tile = getTile();
+            if (tile instanceof IGregTechTileEntity) {
+                ((IGregTechTileEntity) tile).issueTextureUpdate();
+            }
+        }
+    }
+
+    @Override
+    public ITexture getOverlayTexture() {
+        if (composedTexture == null) {
+            composedTexture = CoverMarkTextures.compose(super.getOverlayTexture(), visual);
+        }
+        return composedTexture;
+    }
+
+    @Override
+    public ITexture getSpecialFaceTexture() {
+        return getOverlayTexture();
+    }
+
+    /** WAILA 的覆盖板行（GT 只给一行）：频道名、交互状态、速率、当前状态。 */
+    @Override
+    public String getDescription() {
+        if (!visual.connected) {
+            return StatCollector.translateToLocal("warpcovers.status.unconnected");
+        }
+        String rate = visual.rate == Long.MAX_VALUE ? StatCollector.translateToLocal("warpcovers.waila.rate_unlimited")
+            : StatCollector.translateToLocalFormatted("warpcovers.waila.rate", visual.rate);
+        return StatCollector.translateToLocalFormatted(
+            "warpcovers.waila.line",
+            visual.channelName,
+            StatCollector.translateToLocal(
+                "warpcovers.state." + visual.state.name()
+                    .toLowerCase(Locale.ROOT)),
+            rate,
+            StatCollector.translateToLocal("warpcovers.status." + visual.statusKey));
     }
 
     // ---- 存盘 ----

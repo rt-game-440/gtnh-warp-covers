@@ -136,6 +136,29 @@ class ChannelAdminTest {
     }
 
     @Test
+    void 改色通知该频道所有已加载的连接端() {
+        RecordingHost first = connect("a", "alice");
+        RecordingHost second = connect("b", "alice");
+        RecordingHost other = new RecordingHost();
+        FakeMachine machine = new FakeMachine("other", 1000);
+        Channel otherChannel = owned(ALICE, "副网");
+        hub.connect(otherChannel.id(), "c", machine.location, "alice", new EndpointConfig(), machine, other);
+
+        admin.setColor(ALICE, channel.id(), 0x123456);
+        assertEquals(1, first.changes);
+        assertEquals(1, second.changes);
+        assertEquals(0, other.changes, "别的频道不受影响");
+
+        hub.unbind("b", second);
+        admin.setColor(ALICE, channel.id(), 0x654321);
+        assertEquals(2, first.changes);
+        assertEquals(1, second.changes, "未加载的连接端不通知，加载后由客户端请求数据时取到新颜色");
+
+        admin.setColor(ALICE, channel.id(), 0x654321);
+        assertEquals(2, first.changes, "颜色没变不通知");
+    }
+
+    @Test
     void 备注不能超长() {
         StringBuilder tooLong = new StringBuilder();
         for (int i = 0; i <= ChannelAdmin.MAX_NOTE_LENGTH; i++) {

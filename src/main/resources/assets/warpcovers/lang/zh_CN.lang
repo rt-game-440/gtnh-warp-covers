@@ -79,6 +79,9 @@ warpcovers.gui.status=状态：%s
 warpcovers.gui.reason=最近断开：%s
 
 # 连接端状态
+warpcovers.waila.line=频道：%s | %s | %s | %s
+warpcovers.waila.rate=每周期 %d
+warpcovers.waila.rate_unlimited=速率不限
 warpcovers.status.unconnected=未连接
 warpcovers.status.disabled=服务器已禁用
 warpcovers.status.idle=空闲（交互状态为空）

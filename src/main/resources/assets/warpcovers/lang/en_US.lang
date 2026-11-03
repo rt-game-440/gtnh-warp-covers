@@ -79,6 +79,9 @@ warpcovers.gui.status=Status: %s
 warpcovers.gui.reason=Last disconnected: %s
 
 # Endpoint status
+warpcovers.waila.line=Channel: %s | %s | %s | %s
+warpcovers.waila.rate=%d per period
+warpcovers.waila.rate_unlimited=No rate limit
 warpcovers.status.unconnected=Not connected
 warpcovers.status.disabled=Disabled by the server
 warpcovers.status.idle=Idle (mode is Idle)
