@@ -10,10 +10,11 @@ import java.util.List;
 import net.minecraft.launchwrapper.Launch;
 
 import com.rtgame.warpcovers.gt.ModItems;
-import com.rtgame.warpcovers.gt.WarpServices;
+import com.rtgame.warpcovers.gt.WarpEvents;
 import com.rtgame.warpcovers.selfcheck.DevEnvironment;
 import com.rtgame.warpcovers.selfcheck.FluidChannelScenario;
 import com.rtgame.warpcovers.selfcheck.HullSmokeScenario;
+import com.rtgame.warpcovers.selfcheck.PersistenceScenario;
 import com.rtgame.warpcovers.selfcheck.SelfCheckCommand;
 import com.rtgame.warpcovers.selfcheck.SelfCheckLog;
 import com.rtgame.warpcovers.selfcheck.SelfCheckLogDir;
@@ -24,6 +25,7 @@ import cpw.mods.fml.common.event.FMLInitializationEvent;
 import cpw.mods.fml.common.event.FMLPostInitializationEvent;
 import cpw.mods.fml.common.event.FMLPreInitializationEvent;
 import cpw.mods.fml.common.event.FMLServerStartingEvent;
+import cpw.mods.fml.common.event.FMLServerStoppedEvent;
 
 public class CommonProxy {
 
@@ -34,19 +36,25 @@ public class CommonProxy {
 
     public void init(FMLInitializationEvent event) {
         ModItems.register();
+        WarpEvents.register();
     }
 
     public void postInit(FMLPostInitializationEvent event) {}
 
+    public void serverStopped(FMLServerStoppedEvent event) {
+        WarpEvents.onServerStopped();
+    }
+
     public void serverStarting(FMLServerStartingEvent event) {
-        WarpServices.reset();
+        // 频道数据随主世界加载（WarpEvents），这里不再重置
         // 自检命令仅开发环境注册；发布版不暴露
         if (!DevEnvironment.isDevelopment(Launch.blackboard)) {
             return;
         }
         File gameDir = Launch.minecraftHome != null ? Launch.minecraftHome : new File(".");
         Path logDir = SelfCheckLogDir.resolve(gameDir);
-        List<SelfCheckScenario> scenarios = Arrays.<SelfCheckScenario>asList(new HullSmokeScenario(), new FluidChannelScenario());
+        List<SelfCheckScenario> scenarios = Arrays
+            .<SelfCheckScenario>asList(new HullSmokeScenario(), new FluidChannelScenario(), new PersistenceScenario());
         SelfCheckRunner runner = new SelfCheckRunner(
             new File(gameDir, "warpcovers-selfcheck-state.txt").toPath(),
             new SelfCheckLog(logDir, Clock.systemDefaultZone()),

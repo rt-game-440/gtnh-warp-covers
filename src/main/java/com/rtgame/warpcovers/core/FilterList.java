@@ -9,6 +9,8 @@ import java.util.Set;
 public final class FilterList {
 
     private boolean whitelist = true;
+    /** 物品名单是否连 NBT 一起匹配；流体名单忽略此项。 */
+    private boolean matchNbt = false;
     private final Set<String> keys = new LinkedHashSet<String>();
 
     public boolean isWhitelist() {
@@ -17,6 +19,14 @@ public final class FilterList {
 
     public void setWhitelist(boolean whitelist) {
         this.whitelist = whitelist;
+    }
+
+    public boolean matchNbt() {
+        return matchNbt;
+    }
+
+    public void setMatchNbt(boolean matchNbt) {
+        this.matchNbt = matchNbt;
     }
 
     public void add(String key) {
@@ -43,5 +53,29 @@ public final class FilterList {
     /** 该物体是否通过名单。白名单只放行名单内的；黑名单放行名单外的。 */
     public boolean allows(String key) {
         return whitelist == keys.contains(key);
+    }
+
+    public FilterList copy() {
+        FilterList copy = new FilterList();
+        copy.whitelist = whitelist;
+        copy.matchNbt = matchNbt;
+        copy.keys.addAll(keys);
+        return copy;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (!(o instanceof FilterList)) {
+            return false;
+        }
+        FilterList other = (FilterList) o;
+        return whitelist == other.whitelist && matchNbt == other.matchNbt
+            && keys.equals(other.keys)
+            && new java.util.ArrayList<String>(keys).equals(new java.util.ArrayList<String>(other.keys));
+    }
+
+    @Override
+    public int hashCode() {
+        return keys.hashCode() * 4 + (whitelist ? 2 : 0) + (matchNbt ? 1 : 0);
     }
 }

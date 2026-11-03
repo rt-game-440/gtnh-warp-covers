@@ -4,9 +4,9 @@ package com.rtgame.warpcovers.core;
 public final class ObjectStack {
 
     private final String key;
-    private final int amount;
+    private final long amount;
 
-    public ObjectStack(String key, int amount) {
+    public ObjectStack(String key, long amount) {
         this.key = key;
         this.amount = amount;
     }
@@ -15,7 +15,7 @@ public final class ObjectStack {
         return key;
     }
 
-    public int amount() {
+    public long amount() {
         return amount;
     }
 

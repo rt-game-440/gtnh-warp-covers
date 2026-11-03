@@ -4,3 +4,17 @@ warpcovers.mod.description=为 GTNH 提供基于覆盖板的物品、流体与�
 
 item.warpcovers.cover.fluid.name=流体折跃覆盖板
 itemGroup.warpcovers=折跃覆盖板
+
+warpcovers.state.input=输入
+warpcovers.state.output=输出
+warpcovers.state.empty=空
+
+warpcovers.tooltip.unconnected=未连接频道
+warpcovers.tooltip.channel=频道：%s
+warpcovers.tooltip.state=交互状态：%s
+warpcovers.tooltip.whitelist=白名单：%d 条
+warpcovers.tooltip.blacklist=黑名单：%d 条
+warpcovers.tooltip.priority=优先级：%d
+warpcovers.tooltip.rate=速率：%d / 周期
+warpcovers.tooltip.period=周期：%d tick
+warpcovers.tooltip.clear_hint=单独放入合成台可清空配置

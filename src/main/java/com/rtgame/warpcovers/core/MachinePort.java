@@ -20,7 +20,7 @@ public interface MachinePort {
      * @param simulate true 只模拟，不改变机器
      * @return 实际（或模拟）抽出的数量，不超过 amount
      */
-    int extract(String key, int amount, boolean simulate);
+    long extract(String key, long amount, boolean simulate);
 
     /**
      * 插入物体。
@@ -28,5 +28,15 @@ public interface MachinePort {
      * @param simulate true 只模拟，不改变机器
      * @return 实际（或模拟）插入的数量，不超过 amount
      */
-    int insert(String key, int amount, boolean simulate);
+    long insert(String key, long amount, boolean simulate);
+
+    /** 机器是否仍然有效（方块被破坏、区块卸载后返回 false）。 */
+    default boolean isAlive() {
+        return true;
+    }
+
+    /** 机器名，缓存进连接端索引供管理界面显示。 */
+    default String machineName() {
+        return "";
+    }
 }

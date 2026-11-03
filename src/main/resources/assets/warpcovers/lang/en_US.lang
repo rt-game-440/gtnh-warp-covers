@@ -4,3 +4,17 @@ warpcovers.mod.description=Cover-based item, fluid and energy warp channels for 
 
 item.warpcovers.cover.fluid.name=Fluid Warp Cover
 itemGroup.warpcovers=Warp Covers
+
+warpcovers.state.input=Input
+warpcovers.state.output=Output
+warpcovers.state.empty=Idle
+
+warpcovers.tooltip.unconnected=Not connected to a channel
+warpcovers.tooltip.channel=Channel: %s
+warpcovers.tooltip.state=Mode: %s
+warpcovers.tooltip.whitelist=Whitelist: %d entries
+warpcovers.tooltip.blacklist=Blacklist: %d entries
+warpcovers.tooltip.priority=Priority: %d
+warpcovers.tooltip.rate=Rate: %d per period
+warpcovers.tooltip.period=Period: %d ticks
+warpcovers.tooltip.clear_hint=Craft alone to clear its configuration

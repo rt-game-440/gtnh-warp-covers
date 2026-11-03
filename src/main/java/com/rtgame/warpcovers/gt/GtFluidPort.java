@@ -52,6 +52,19 @@ final class GtFluidPort implements MachinePort {
     }
 
     @Override
+    public boolean isAlive() {
+        ICoverable coverable = tile.get();
+        return coverable != null && !coverable.isDead() && !coverable.isInvalidTileEntity();
+    }
+
+    /** 机器名存为本地化键（GT 机器的物品栏名），由客户端翻译。 */
+    @Override
+    public String machineName() {
+        ICoverable coverable = tile.get();
+        return coverable == null ? "" : coverable.getInventoryName();
+    }
+
+    @Override
     public List<ObjectStack> extractable() {
         List<ObjectStack> result = new ArrayList<ObjectStack>();
         IFluidHandler handler = handler();
@@ -81,23 +94,27 @@ final class GtFluidPort implements MachinePort {
     }
 
     @Override
-    public int extract(String key, int amount, boolean simulate) {
+    public long extract(String key, long amount, boolean simulate) {
         IFluidHandler handler = handler();
         Fluid fluid = FluidRegistry.getFluid(key);
         if (handler == null || fluid == null || amount <= 0) {
             return 0;
         }
-        FluidStack drained = handler.drain(side, new FluidStack(fluid, amount), !simulate);
+        FluidStack drained = handler.drain(side, new FluidStack(fluid, clamp(amount)), !simulate);
         return drained == null ? 0 : drained.amount;
     }
 
     @Override
-    public int insert(String key, int amount, boolean simulate) {
+    public long insert(String key, long amount, boolean simulate) {
         IFluidHandler handler = handler();
         Fluid fluid = FluidRegistry.getFluid(key);
         if (handler == null || fluid == null || amount <= 0) {
             return 0;
         }
-        return handler.fill(side, new FluidStack(fluid, amount), !simulate);
+        return handler.fill(side, new FluidStack(fluid, clamp(amount)), !simulate);
+    }
+
+    private static int clamp(long amount) {
+        return (int) Math.min(Integer.MAX_VALUE, amount);
     }
 }

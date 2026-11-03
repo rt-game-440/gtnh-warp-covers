@@ -1,0 +1,139 @@
+package com.rtgame.warpcovers.gt;
+
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.List;
+import java.util.Map;
+
+import net.minecraft.nbt.NBTTagCompound;
+import net.minecraft.nbt.NBTTagList;
+
+import com.rtgame.warpcovers.WarpCovers;
+import com.rtgame.warpcovers.core.Channel;
+import com.rtgame.warpcovers.core.ChannelHub;
+import com.rtgame.warpcovers.core.ChannelType;
+import com.rtgame.warpcovers.core.DisconnectReason;
+import com.rtgame.warpcovers.core.Endpoint;
+import com.rtgame.warpcovers.core.Tombstone;
+
+/** 频道表、连接端索引与墓碑的存档格式。带版本号，以后格式变化时据此迁移。 */
+public final class HubNbt {
+
+    public static final int VERSION = 1;
+
+    private static final int TAG_COMPOUND = 10;
+
+    private HubNbt() {}
+
+    public static NBTTagCompound write(ChannelHub hub) {
+        NBTTagCompound root = new NBTTagCompound();
+        write(hub, root);
+        return root;
+    }
+
+    public static void write(ChannelHub hub, NBTTagCompound root) {
+        root.setInteger("version", VERSION);
+        root.setLong("nextOrder", hub.nextConnectOrder());
+
+        NBTTagList channels = new NBTTagList();
+        for (Channel channel : hub.channels()) {
+            NBTTagCompound tag = new NBTTagCompound();
+            tag.setString("id", channel.id());
+            tag.setString(
+                "type",
+                channel.type()
+                    .key());
+            tag.setString("name", channel.name());
+            channels.appendTag(tag);
+        }
+        root.setTag("channels", channels);
+
+        List<Endpoint> sorted = new ArrayList<Endpoint>(hub.endpoints());
+        Collections.sort(sorted, new Comparator<Endpoint>() {
+
+            @Override
+            public int compare(Endpoint a, Endpoint b) {
+                return Long.compare(a.connectOrder(), b.connectOrder());
+            }
+        });
+        NBTTagList endpoints = new NBTTagList();
+        for (Endpoint endpoint : sorted) {
+            NBTTagCompound tag = new NBTTagCompound();
+            tag.setString("id", endpoint.endpointId());
+            tag.setString("ch", endpoint.channelId());
+            tag.setLong("ord", endpoint.connectOrder());
+            tag.setTag("loc", ConfigNbt.writeLocation(endpoint.location()));
+            tag.setString("con", endpoint.connector());
+            tag.setString("mn", endpoint.machineName());
+            tag.setString(
+                "st",
+                endpoint.state()
+                    .name());
+            endpoints.appendTag(tag);
+        }
+        root.setTag("endpoints", endpoints);
+
+        NBTTagList tombstones = new NBTTagList();
+        for (Map.Entry<String, Tombstone> entry : hub.tombstones()
+            .entrySet()) {
+            NBTTagCompound tag = new NBTTagCompound();
+            tag.setString("id", entry.getKey());
+            tag.setTag(
+                "loc",
+                ConfigNbt.writeLocation(
+                    entry.getValue()
+                        .location()));
+            tag.setString(
+                "r",
+                entry.getValue()
+                    .reason()
+                    .key());
+            tombstones.appendTag(tag);
+        }
+        root.setTag("tombstones", tombstones);
+    }
+
+    /** 把存档内容恢复进一个空的核心。无法识别的条目跳过。 */
+    public static void read(NBTTagCompound root, ChannelHub hub) {
+        int version = root.getInteger("version");
+        if (version > VERSION) {
+            WarpCovers.LOG.warn("折跃频道存档版本 {} 比当前支持的 {} 新，尽力读取", version, VERSION);
+        }
+        NBTTagList channels = root.getTagList("channels", TAG_COMPOUND);
+        for (int i = 0; i < channels.tagCount(); i++) {
+            NBTTagCompound tag = channels.getCompoundTagAt(i);
+            ChannelType type = ChannelType.byKey(tag.getString("type"));
+            String id = tag.getString("id");
+            if (type == null || id.isEmpty()) {
+                WarpCovers.LOG.warn("跳过无法识别的频道: {}", tag);
+                continue;
+            }
+            hub.restoreChannel(id, type, tag.getString("name"));
+        }
+        NBTTagList endpoints = root.getTagList("endpoints", TAG_COMPOUND);
+        for (int i = 0; i < endpoints.tagCount(); i++) {
+            NBTTagCompound tag = endpoints.getCompoundTagAt(i);
+            hub.restoreEndpoint(
+                tag.getString("id"),
+                tag.getString("ch"),
+                tag.getLong("ord"),
+                ConfigNbt.readLocation(tag.getCompoundTag("loc")),
+                tag.getString("con"),
+                tag.getString("mn"),
+                ConfigNbt.readState(tag.getString("st")));
+        }
+        NBTTagList tombstones = root.getTagList("tombstones", TAG_COMPOUND);
+        for (int i = 0; i < tombstones.tagCount(); i++) {
+            NBTTagCompound tag = tombstones.getCompoundTagAt(i);
+            DisconnectReason reason = DisconnectReason.byKey(tag.getString("r"));
+            if (reason == null) {
+                continue;
+            }
+            hub.restoreTombstone(
+                tag.getString("id"),
+                new Tombstone(ConfigNbt.readLocation(tag.getCompoundTag("loc")), reason));
+        }
+        hub.restoreNextConnectOrder(root.getLong("nextOrder"));
+    }
+}

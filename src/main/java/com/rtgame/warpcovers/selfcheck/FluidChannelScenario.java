@@ -1,12 +1,8 @@
 package com.rtgame.warpcovers.selfcheck;
 
-import net.minecraft.item.ItemBlock;
-import net.minecraft.item.ItemStack;
-import net.minecraft.server.MinecraftServer;
-import net.minecraft.tileentity.TileEntity;
-import net.minecraft.world.World;
+import static com.rtgame.warpcovers.selfcheck.ScenarioWorld.*;
+
 import net.minecraft.world.WorldServer;
-import net.minecraftforge.common.util.FakePlayerFactory;
 import net.minecraftforge.common.util.ForgeDirection;
 import net.minecraftforge.fluids.FluidRegistry;
 import net.minecraftforge.fluids.FluidStack;
@@ -16,13 +12,10 @@ import com.rtgame.warpcovers.core.ChannelHub;
 import com.rtgame.warpcovers.core.ChannelType;
 import com.rtgame.warpcovers.core.InteractionState;
 import com.rtgame.warpcovers.gt.FluidWarpCover;
-import com.rtgame.warpcovers.gt.ModItems;
 import com.rtgame.warpcovers.gt.WarpServices;
 
-import gregtech.api.enums.ItemList;
 import gregtech.api.interfaces.tileentity.IGregTechTileEntity;
 import gregtech.common.covers.Cover;
-import gregtech.api.covers.CoverRegistry;
 
 /**
  * 流体频道直通场景：主世界与下界各放储罐，贴上流体折跃覆盖板，建频道、设输入输出、加白名单，
@@ -74,6 +67,7 @@ public final class FluidChannelScenario implements SelfCheckScenario {
         }
 
         ChannelHub hub = WarpServices.hub();
+        deleteChannelsNamed(hub, "自检频道");
         Channel channel = hub.createChannel(ChannelType.FLUID, "自检频道");
 
         FluidWarpCover inputA = attachCover(tankA, ForgeDirection.UP);
@@ -92,7 +86,7 @@ public final class FluidChannelScenario implements SelfCheckScenario {
         }
         // 连接顺序：C 在 B 之前，如果无视 GT 面规则，水会先流进 C
         for (FluidWarpCover cover : new FluidWarpCover[] { inputA, selfOutA, inputA2, outputC, outputB }) {
-            cover.connect(channel.id());
+            cover.connect(channel.id(), "selfcheck");
             if (cover.state() != InteractionState.EMPTY) {
                 throw new IllegalStateException("新连接的交互状态不是空");
             }
@@ -165,114 +159,16 @@ public final class FluidChannelScenario implements SelfCheckScenario {
                 .contains("water")
             || input.channelId()
                 .isEmpty()) {
-            return SelfCheckResult.fail("重启后覆盖板数据丢失: 状态=" + input.state() + " 名单=" + input.filter().keys());
+            return SelfCheckResult.fail(
+                "重启后覆盖板数据丢失: 状态=" + input.state()
+                    + " 名单="
+                    + input.filter()
+                        .keys());
         }
         Cover out = tankB.getCoverAtSide(ForgeDirection.UP);
         if (!(out instanceof FluidWarpCover) || ((FluidWarpCover) out).state() != InteractionState.OUTPUT) {
             return SelfCheckResult.fail("重启后 B 顶面的输出端覆盖板数据丢失");
         }
         return SelfCheckResult.pass("水量 " + EXPECTED_WATER + " 守恒，覆盖板数据在重启后依然存在");
-    }
-
-    // ---- 辅助 ----
-
-    private static WorldServer world(int dimension) {
-        return MinecraftServer.getServer()
-            .worldServerForDimension(dimension);
-    }
-
-    private static IGregTechTileEntity placeTank(World world, int x, int y, int z) {
-        loadChunk(world, x, z);
-        world.setBlockToAir(x, y, z);
-        ItemStack stack = ItemList.Super_Tank_LV.get(1);
-        boolean placed;
-        try {
-            placed = ((ItemBlock) stack.getItem()).placeBlockAt(
-                stack,
-                FakePlayerFactory.getMinecraft((WorldServer) world),
-                world,
-                x,
-                y,
-                z,
-                1,
-                0.5F,
-                0.5F,
-                0.5F,
-                stack.getItemDamage());
-        } catch (RuntimeException e) {
-            throw new IllegalStateException(
-                "储罐放置异常: dim=" + world.provider.dimensionId + " " + x + "," + y + "," + z
-                    + " 现有方块="
-                    + world.getBlock(x, y, z)
-                    + " 物品="
-                    + stack.getItem(),
-                e);
-        }
-        IGregTechTileEntity tile = placed ? tileAt(world, x, y, z) : null;
-        if (tile == null) {
-            throw new IllegalStateException("储罐放置失败: dim=" + world.provider.dimensionId + " " + x + "," + y + "," + z);
-        }
-        warmUp(world, x, y, z);
-        return tile;
-    }
-
-    /** GT 机器刚放下时 mTickTimer 过小会拒绝流体读写（要求大于 5），手动推进几次更新。 */
-    private static void warmUp(World world, int x, int y, int z) {
-        TileEntity tile = world.getTileEntity(x, y, z);
-        for (int i = 0; i < 8; i++) {
-            tile.updateEntity();
-        }
-    }
-
-    /** 显式加载区块：非主世界的 provideChunk 可能返回空区块，loadChunk 总是真正加载。 */
-    private static void loadChunk(World world, int x, int z) {
-        ((WorldServer) world).theChunkProviderServer.loadChunk(x >> 4, z >> 4);
-    }
-
-    private static IGregTechTileEntity tileAt(World world, int x, int y, int z) {
-        loadChunk(world, x, z);
-        TileEntity tile = world.getTileEntity(x, y, z);
-        return tile instanceof IGregTechTileEntity ? (IGregTechTileEntity) tile : null;
-    }
-
-    private static FluidWarpCover attachCover(IGregTechTileEntity tile, ForgeDirection side) {
-        Cover cover = CoverRegistry.buildCover(new ItemStack(ModItems.fluidCover), side, tile);
-        tile.attachCover(cover);
-        Cover attached = tile.getCoverAtSide(side);
-        if (!(attached instanceof FluidWarpCover)) {
-            throw new IllegalStateException("覆盖板贴上失败: " + attached);
-        }
-        return (FluidWarpCover) attached;
-    }
-
-    /** 从顶面向 A 注入水，返回实际注入量。 */
-    private static int pour(IGregTechTileEntity tank, int amount) {
-        int filled = tank.fill(ForgeDirection.UP, new FluidStack(FluidRegistry.WATER, amount), true);
-        if (filled != amount) {
-            throw new IllegalStateException("注入水失败: 期望 " + amount + " 实际 " + filled);
-        }
-        return filled;
-    }
-
-    private static void runCovers(long now, FluidWarpCover... covers) {
-        for (FluidWarpCover cover : covers) {
-            cover.doCoverThings((byte) 0, now);
-        }
-    }
-
-    private static int fluidIn(IGregTechTileEntity tank, String name) {
-        FluidStack stack = tank.getTankInfo(ForgeDirection.UP)[0].fluid;
-        return stack != null && name.equals(FluidRegistry.getFluidName(stack)) ? stack.amount : 0;
-    }
-
-    private static int totalFluid(IGregTechTileEntity tank) {
-        FluidStack stack = tank.getTankInfo(ForgeDirection.UP)[0].fluid;
-        return stack == null ? 0 : stack.amount;
-    }
-
-    private static void expect(String what, long expected, long actual) {
-        if (expected != actual) {
-            throw new IllegalStateException(what + " 不对: 期望 " + expected + " 实际 " + actual);
-        }
     }
 }
