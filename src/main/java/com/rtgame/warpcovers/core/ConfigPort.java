@@ -14,4 +14,9 @@ public interface ConfigPort {
 
     /** 运行周期的下限（tick）。 */
     int minPeriodTicks();
+
+    /** 每个归属者每种类型的频道数上限；0 表示不限。 */
+    default int maxChannelsPerOwnerPerType() {
+        return 0;
+    }
 }

@@ -180,7 +180,8 @@ class CoverPanelTest {
     void 列表只有本类型频道并按名称排序() {
         create(ALICE, "beta");
         create(ALICE, "Alpha");
-        create(BOB, "gamma");
+        hub.setPublic(create(BOB, "gamma").id(), true);
+        create(BOB, "私人频道看不到");
         hub.createChannel(ChannelType.ITEM, "物品频道");
 
         assertEquals(java.util.Arrays.asList("Alpha", "beta", "gamma"), names(panel.visibleChannels(ALICE)));
@@ -189,6 +190,7 @@ class CoverPanelTest {
     @Test
     void 点击连接再点断开() {
         Channel channel = create(ALICE, "主网");
+        hub.setPublic(channel.id(), true);
 
         PanelNotice connected = panel.toggleConnection(BOB, channel.id());
         assertEquals(new PanelNotice("connected", "主网", false), connected);
@@ -208,7 +210,7 @@ class CoverPanelTest {
         Channel first = create(ALICE, "一");
         Channel second = create(ALICE, "二");
         panel.toggleConnection(ALICE, first.id());
-        panel.setState(InteractionState.INPUT);
+        panel.setState(ALICE, InteractionState.INPUT);
 
         panel.toggleConnection(ALICE, second.id());
 
@@ -240,7 +242,7 @@ class CoverPanelTest {
 
     @Test
     void 未连接时不能切换交互状态() {
-        assertFalse(panel.setState(InteractionState.INPUT));
+        assertFalse(panel.setState(ALICE, InteractionState.INPUT));
         assertEquals(InteractionState.EMPTY, endpoint.config.state());
         assertEquals(0, endpoint.configChanges);
     }
@@ -250,14 +252,14 @@ class CoverPanelTest {
         Channel channel = create(ALICE, "主网");
         panel.toggleConnection(ALICE, channel.id());
 
-        assertTrue(panel.setState(InteractionState.OUTPUT));
+        assertTrue(panel.setState(ALICE, InteractionState.OUTPUT));
         assertEquals(
             InteractionState.OUTPUT,
             hub.findEndpoint("ep-1")
                 .state());
         assertEquals(1, endpoint.configChanges);
 
-        panel.setState(InteractionState.OUTPUT);
+        panel.setState(ALICE, InteractionState.OUTPUT);
         assertEquals(1, endpoint.configChanges, "状态没变不重复标记");
     }
 

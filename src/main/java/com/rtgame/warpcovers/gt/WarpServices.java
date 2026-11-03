@@ -5,6 +5,10 @@ import com.rtgame.warpcovers.WarpCovers;
 import com.rtgame.warpcovers.core.ChannelHub;
 import com.rtgame.warpcovers.core.ChannelType;
 import com.rtgame.warpcovers.core.ConfigPort;
+import com.rtgame.warpcovers.core.IdentityPort;
+import com.rtgame.warpcovers.core.PersonalIdentity;
+
+import cpw.mods.fml.common.Loader;
 
 /**
  * 服务端共享的频道核心实例，以及把 {@link ServerConfig} 接到核心的配置端口。
@@ -47,12 +51,33 @@ public final class WarpServices {
         public int minPeriodTicks() {
             return ServerConfig.minPeriodTicks;
         }
+
+        @Override
+        public int maxChannelsPerOwnerPerType() {
+            return ServerConfig.maxChannelsPerOwnerPerType;
+        }
     };
 
+    private static IdentityPort identity = PersonalIdentity.INSTANCE;
     private static ChannelHub hub;
     private static boolean warned;
 
     private WarpServices() {}
+
+    /** 启动时按是否安装 ServerUtilities 二选一。类只在确认安装后才会被加载。 */
+    public static void initIdentity() {
+        if (Loader.isModLoaded("serverutilities")) {
+            identity = ServerUtilitiesIdentity.install();
+            WarpCovers.LOG.info("已检测到 ServerUtilities：频道可以归队伍所有");
+        } else {
+            identity = PersonalIdentity.INSTANCE;
+            WarpCovers.LOG.info("未安装 ServerUtilities：频道只能归个人所有");
+        }
+    }
+
+    static IdentityPort identity() {
+        return identity;
+    }
 
     /** 当前世界的频道核心。主世界数据还没装上时返回一个临时的空核心（不会存盘），并只警告一次。 */
     public static ChannelHub hub() {
@@ -61,7 +86,7 @@ public final class WarpServices {
                 warned = true;
                 WarpCovers.LOG.warn("折跃频道数据尚未加载，使用临时的空频道表");
             }
-            hub = new ChannelHub(CONFIG);
+            hub = new ChannelHub(CONFIG, identity);
         }
         return hub;
     }

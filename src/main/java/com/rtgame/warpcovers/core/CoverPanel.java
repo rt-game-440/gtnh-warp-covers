@@ -51,11 +51,11 @@ public final class CoverPanel {
 
     // ---- 频道列表 ----
 
-    /** 该玩家能看到的本类型频道，按名称排序。 */
+    /** 该玩家有「可见」权限的本类型频道，按名称排序。 */
     public List<Channel> visibleChannels(Viewer viewer) {
         List<Channel> result = new ArrayList<Channel>();
         for (Channel channel : hub.channels()) {
-            if (channel.type() == type) {
+            if (channel.type() == type && hub.hasPermission(viewer.playerId(), channel, Permission.VIEW)) {
                 result.add(channel);
             }
         }
@@ -65,7 +65,13 @@ public final class CoverPanel {
 
     /** 新频道归到谁名下。 */
     public String ownerFor(Viewer viewer) {
-        return viewer.personalOwnerId();
+        return hub.identity()
+            .ownerFor(viewer.playerId());
+    }
+
+    /** 该玩家现在不能新增频道的原因；能新增时为 null。 */
+    public CreateFailure createBlock(Viewer viewer) {
+        return hub.canCreate(viewer.playerId(), type);
     }
 
     /** 当前连接的频道；未连接或频道已不在时为 null。 */
@@ -80,14 +86,25 @@ public final class CoverPanel {
      * @param connectAfter 创建后直接把本覆盖板连上去
      */
     public PanelNotice createChannel(Viewer viewer, String name, boolean connectAfter) {
-        ChannelCreation creation = hub
-            .createChannel(type, name, ownerFor(viewer), viewer.name(), ChannelColors.random(random));
+        String trimmed = name == null ? "" : name.trim();
+        CreateFailure blocked = createBlock(viewer);
+        if (blocked != null) {
+            return report(PanelNotice.error(blocked.key(), trimmed));
+        }
+        String ownerId = ownerFor(viewer);
+        ChannelCreation creation = hub.createChannel(
+            type,
+            name,
+            ownerId,
+            hub.identity()
+                .ownerName(ownerId, viewer.name()),
+            ChannelColors.random(random));
         if (!creation.succeeded()) {
             return report(
                 PanelNotice.error(
                     creation.failure()
                         .key(),
-                    name == null ? "" : name.trim()));
+                    trimmed));
         }
         Channel channel = creation.channel();
         if (connectAfter) {
@@ -102,6 +119,9 @@ public final class CoverPanel {
         Channel current = connectedChannel();
         if (current != null && current.id()
             .equals(channelId)) {
+            if (!hub.hasPermission(viewer.playerId(), current, Permission.CONNECT)) {
+                return report(PanelNotice.error("no_connect_permission", current.name()));
+            }
             endpoint.disconnect();
             return report(PanelNotice.info("disconnected", current.name()));
         }
@@ -109,15 +129,23 @@ public final class CoverPanel {
         if (target == null || target.type() != type) {
             return report(PanelNotice.error("channel_missing", ""));
         }
+        if (!hub.hasPermission(viewer.playerId(), target, Permission.CONNECT)) {
+            return report(PanelNotice.error("no_connect_permission", target.name()));
+        }
         endpoint.connect(target.id(), viewer.playerId());
         return report(PanelNotice.info("connected", target.name()));
     }
 
     // ---- 本端配置 ----
 
-    /** 切换交互状态；未连接时忽略。 */
-    public boolean setState(InteractionState state) {
-        if (state == null || connectedChannel() == null) {
+    /** 切换交互状态；未连接时忽略，没有「连接」权限时拒绝。 */
+    public boolean setState(Viewer viewer, InteractionState state) {
+        Channel current = connectedChannel();
+        if (state == null || current == null) {
+            return false;
+        }
+        if (!hub.hasPermission(viewer.playerId(), current, Permission.CONNECT)) {
+            report(PanelNotice.error("no_connect_permission", current.name()));
             return false;
         }
         if (endpoint.config()

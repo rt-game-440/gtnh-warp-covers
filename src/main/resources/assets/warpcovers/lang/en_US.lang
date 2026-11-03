@@ -90,3 +90,6 @@ warpcovers.notice.channel_missing=The channel does not exist or was deleted
 warpcovers.notice.empty_name=The channel name cannot be empty
 warpcovers.notice.name_too_long=The channel name is too long (32 characters max)
 warpcovers.notice.duplicate_name=You already have a channel of this type named "%s"
+warpcovers.notice.no_create_permission=You have no permission to create channels for this owner
+warpcovers.notice.limit_reached=The server limit for channels of this type has been reached
+warpcovers.notice.no_connect_permission=You have no permission to connect to channel "%s"

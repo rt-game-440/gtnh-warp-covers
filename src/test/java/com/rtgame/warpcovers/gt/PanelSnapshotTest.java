@@ -19,6 +19,7 @@ import net.minecraft.nbt.NBTTagCompound;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import com.rtgame.warpcovers.core.Channel;
 import com.rtgame.warpcovers.core.ChannelHub;
 import com.rtgame.warpcovers.core.ChannelType;
 import com.rtgame.warpcovers.core.ConfigPort;
@@ -27,6 +28,7 @@ import com.rtgame.warpcovers.core.CreateFailure;
 import com.rtgame.warpcovers.core.DisconnectReason;
 import com.rtgame.warpcovers.core.EndpointConfig;
 import com.rtgame.warpcovers.core.EndpointStatus;
+import com.rtgame.warpcovers.core.Identity;
 import com.rtgame.warpcovers.core.InteractionState;
 import com.rtgame.warpcovers.core.Location;
 import com.rtgame.warpcovers.core.PanelEndpoint;
@@ -73,7 +75,9 @@ class PanelSnapshotTest {
     @Test
     void 频道快照经网络往返后客户端看到名称颜色归属者和自己的标记() throws IOException {
         panel.createChannel(alice, "主网", true);
-        panel.createChannel(bob, "副网", false);
+        Channel other2 = hub.createChannel(ChannelType.FLUID, "副网", bob.personalOwnerId(), "Bob", 0)
+            .channel();
+        hub.setPublic(other2.id(), true);
         hub.createChannel(ChannelType.ITEM, "物品频道");
 
         PanelSnapshot.ChannelsView view = PanelSnapshot.parseChannels(roundTrip(PanelSnapshot.channels(panel, alice)));
@@ -96,9 +100,18 @@ class PanelSnapshotTest {
     }
 
     @Test
+    void 不能新增频道的原因随快照下发() throws IOException {
+        assertNull(PanelSnapshot.parseChannels(roundTrip(PanelSnapshot.channels(panel, alice))).createBlock);
+        hub.setCreateAllowed(alice.personalOwnerId(), Identity.MANAGER, false);
+        assertEquals(
+            CreateFailure.NO_PERMISSION,
+            PanelSnapshot.parseChannels(roundTrip(PanelSnapshot.channels(panel, alice))).createBlock);
+    }
+
+    @Test
     void 交互状态随快照下发() {
         panel.createChannel(alice, "主网", true);
-        panel.setState(InteractionState.OUTPUT);
+        panel.setState(alice, InteractionState.OUTPUT);
 
         assertEquals(InteractionState.OUTPUT, PanelSnapshot.parseChannels(PanelSnapshot.channels(panel, alice)).state);
     }
@@ -160,7 +173,7 @@ class PanelSnapshotTest {
     @Test
     void 连接后状态栏反映对端情况() {
         panel.createChannel(alice, "主网", true);
-        panel.setState(InteractionState.INPUT);
+        panel.setState(alice, InteractionState.INPUT);
 
         PanelSnapshot.StatusView view = PanelSnapshot.parseStatus(PanelSnapshot.status(panel, 100));
 

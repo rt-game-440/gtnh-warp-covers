@@ -17,6 +17,7 @@ public final class Channel {
     /** 归属者显示名，只作展示缓存。 */
     private String ownerName;
     private DistributionMode distribution = DistributionMode.ROUND_ROBIN;
+    private ChannelPermissions permissions = new ChannelPermissions();
     /** 按连接顺序号升序。 */
     private final List<Endpoint> endpoints = new ArrayList<Endpoint>();
 
@@ -79,6 +80,14 @@ public final class Channel {
 
     void setDistribution(DistributionMode distribution) {
         this.distribution = distribution == null ? DistributionMode.ROUND_ROBIN : distribution;
+    }
+
+    public ChannelPermissions permissions() {
+        return permissions;
+    }
+
+    void setPermissions(ChannelPermissions permissions) {
+        this.permissions = permissions == null ? new ChannelPermissions() : permissions;
     }
 
     /** 当前连在频道上的连接端，按连接顺序号升序。 */

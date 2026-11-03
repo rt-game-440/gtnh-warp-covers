@@ -90,3 +90,6 @@ warpcovers.notice.channel_missing=频道不存在或已被删除
 warpcovers.notice.empty_name=频道名称不能为空
 warpcovers.notice.name_too_long=频道名称太长（最多 32 个字符）
 warpcovers.notice.duplicate_name=你已经有名为「%s」的同类型频道
+warpcovers.notice.no_create_permission=你没有在该归属者下新增频道的权限
+warpcovers.notice.limit_reached=该类型的频道数已达服务器上限
+warpcovers.notice.no_connect_permission=你没有频道「%s」的连接权限

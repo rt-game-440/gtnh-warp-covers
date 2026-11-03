@@ -210,7 +210,7 @@ public final class WarpCoverGui extends CoverBaseGui<WarpCover> {
             action("state", buf -> {
                 InteractionState state = parseState(NetworkUtils.readStringSafe(buf));
                 if (state != null) {
-                    panel.setState(state);
+                    panel.setState(viewer, state);
                 }
             });
             action("whitelist", buf -> panel.setWhitelist(buf.readBoolean()));
@@ -295,9 +295,23 @@ public final class WarpCoverGui extends CoverBaseGui<WarpCover> {
             ButtonWidget<?> create = new ButtonWidget<>();
             create.pos(0, 0)
                 .size(70, ROW_H)
-                .overlay(IKey.lang("warpcovers.gui.new_channel"));
+                .background(
+                    new DynamicDrawable(
+                        () -> createBlock() != null ? GTGuiTextures.BUTTON_STANDARD_DISABLED
+                            : GTGuiTextures.BUTTON_STANDARD))
+                .overlay(
+                    IKey.dynamic(() -> (createBlock() != null ? "\u00a78" : "") + tr("warpcovers.gui.new_channel")))
+                .tooltipDynamic(tooltip -> {
+                    CreateFailure blocked = createBlock();
+                    if (blocked != null) {
+                        tooltip.addLine(tr("warpcovers.notice." + blocked.key(), ""));
+                    }
+                })
+                .tooltipAutoUpdate(true);
             create.onMousePressed(mouse -> {
-                openCreateDialog(create);
+                if (createBlock() == null) {
+                    openCreateDialog(create);
+                }
                 return true;
             });
             page.child(create);
@@ -310,6 +324,10 @@ public final class WarpCoverGui extends CoverBaseGui<WarpCover> {
                 .size(PAGE_W, PAGE_H - ROW_H - 3);
             page.child(holder);
             return page;
+        }
+
+        private CreateFailure createBlock() {
+            return PanelSnapshot.parseChannels(channels.getValue()).createBlock;
         }
 
         private IWidget channelList(PanelSnapshot.ChannelsView view) {

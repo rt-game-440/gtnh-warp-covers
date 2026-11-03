@@ -56,6 +56,8 @@ public final class PanelSnapshot {
                 .config()
                 .state()
                 .name());
+        CreateFailure blocked = panel.createBlock(viewer);
+        root.setString("cb", blocked == null ? "" : blocked.key());
         return root;
     }
 
@@ -110,7 +112,11 @@ public final class PanelSnapshot {
             }
         }
         String current = root == null ? "" : root.getString("cur");
-        return new ChannelsView(rows, current, root == null ? InteractionState.EMPTY : readState(root.getString("st")));
+        return new ChannelsView(
+            rows,
+            current,
+            root == null ? InteractionState.EMPTY : readState(root.getString("st")),
+            root == null ? null : CreateFailure.byKey(root.getString("cb")));
     }
 
     public static FilterView parseFilter(NBTTagCompound root) {
@@ -175,8 +181,11 @@ public final class PanelSnapshot {
         public final List<ChannelRow> rows;
         public final String currentId;
         public final InteractionState state;
+        /** 当前不能新增频道的原因（没有权限、达到上限）；能新增时为 null。 */
+        public final CreateFailure createBlock;
 
-        ChannelsView(List<ChannelRow> rows, String currentId, InteractionState state) {
+        ChannelsView(List<ChannelRow> rows, String currentId, InteractionState state, CreateFailure createBlock) {
+            this.createBlock = createBlock;
             this.rows = Collections.unmodifiableList(rows);
             this.currentId = currentId;
             this.state = state;

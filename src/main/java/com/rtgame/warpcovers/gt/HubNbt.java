@@ -13,6 +13,7 @@ import com.rtgame.warpcovers.WarpCovers;
 import com.rtgame.warpcovers.core.Channel;
 import com.rtgame.warpcovers.core.ChannelColors;
 import com.rtgame.warpcovers.core.ChannelHub;
+import com.rtgame.warpcovers.core.ChannelPermissions;
 import com.rtgame.warpcovers.core.ChannelType;
 import com.rtgame.warpcovers.core.DisconnectReason;
 import com.rtgame.warpcovers.core.DistributionMode;
@@ -54,9 +55,23 @@ public final class HubNbt {
                 "distribution",
                 channel.distribution()
                     .key());
+            tag.setIntArray(
+                "perms",
+                channel.permissions()
+                    .toMasks());
             channels.appendTag(tag);
         }
         root.setTag("channels", channels);
+
+        NBTTagList policies = new NBTTagList();
+        for (Map.Entry<String, Integer> entry : hub.createPolicies()
+            .entrySet()) {
+            NBTTagCompound tag = new NBTTagCompound();
+            tag.setString("owner", entry.getKey());
+            tag.setInteger("mask", entry.getValue());
+            policies.appendTag(tag);
+        }
+        root.setTag("createPolicies", policies);
 
         List<Endpoint> sorted = new ArrayList<Endpoint>(hub.endpoints());
         Collections.sort(sorted, new Comparator<Endpoint>() {
@@ -126,7 +141,14 @@ public final class HubNbt {
                 color,
                 tag.getString("owner"),
                 tag.getString("ownerName"),
-                DistributionMode.byKey(tag.getString("distribution")));
+                DistributionMode.byKey(tag.getString("distribution")),
+                tag.hasKey("perms") ? ChannelPermissions.fromMasks(tag.getIntArray("perms"))
+                    : new ChannelPermissions());
+        }
+        NBTTagList policies = root.getTagList("createPolicies", TAG_COMPOUND);
+        for (int i = 0; i < policies.tagCount(); i++) {
+            NBTTagCompound tag = policies.getCompoundTagAt(i);
+            hub.restoreCreatePolicy(tag.getString("owner"), tag.getInteger("mask"));
         }
         NBTTagList endpoints = root.getTagList("endpoints", TAG_COMPOUND);
         for (int i = 0; i < endpoints.tagCount(); i++) {

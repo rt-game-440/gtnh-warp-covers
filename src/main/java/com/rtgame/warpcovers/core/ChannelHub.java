@@ -38,9 +38,24 @@ public final class ChannelHub {
     /** 轮询指针，键为「频道 ID#优先级」；只在内存里，重启后从头开始。 */
     private final Map<String, Long> roundRobinPointers = new HashMap<String, Long>();
     private Runnable dirtyListener = NO_LISTENER;
+    private final IdentityPort identity;
+    /** 各归属者哪些身份可以新增频道（{@link Identity} 的位掩码）；没有记录时取默认值。 */
+    private final Map<String, Integer> createPolicies = new HashMap<String, Integer>();
+
+    private static final int DEFAULT_CREATE_POLICY = (1 << Identity.MANAGER.ordinal())
+        | (1 << Identity.MEMBER.ordinal());
 
     public ChannelHub(ConfigPort config) {
+        this(config, PersonalIdentity.INSTANCE);
+    }
+
+    public ChannelHub(ConfigPort config, IdentityPort identity) {
         this.config = config;
+        this.identity = identity;
+    }
+
+    public IdentityPort identity() {
+        return identity;
     }
 
     public void setDirtyListener(Runnable listener) {
@@ -159,6 +174,157 @@ public final class ChannelHub {
             markDirty();
         }
         return true;
+    }
+
+    // ---- 权限 ----
+
+    /** 玩家相对于频道归属者的身份。没有归属者的频道（测试与自检直接建的）所有人都是管理者。 */
+    public Identity identityOf(String playerId, Channel channel) {
+        return channel.ownerId()
+            .isEmpty() ? Identity.MANAGER : identity.identityOf(playerId, channel.ownerId());
+    }
+
+    public boolean hasPermission(String playerId, Channel channel, Permission permission) {
+        return channel.permissions()
+            .allows(identityOf(playerId, channel), permission);
+    }
+
+    /**
+     * 该玩家现在能不能新增这种类型的频道（归属者按 {@link IdentityPort#ownerFor} 决定）。
+     *
+     * @return 不能时的原因；能时为 null
+     */
+    public CreateFailure canCreate(String playerId, ChannelType type) {
+        String ownerId = identity.ownerFor(playerId);
+        Identity who = identity.identityOf(playerId, ownerId);
+        if (!isCreateAllowed(ownerId, who)) {
+            return CreateFailure.NO_PERMISSION;
+        }
+        int limit = config.maxChannelsPerOwnerPerType();
+        if (limit > 0 && countChannels(ownerId, type) >= limit) {
+            return CreateFailure.LIMIT_REACHED;
+        }
+        return null;
+    }
+
+    private int countChannels(String ownerId, ChannelType type) {
+        int count = 0;
+        for (Channel channel : channels.values()) {
+            if (channel.type() == type && channel.ownerId()
+                .equals(ownerId)) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    public boolean isCreateAllowed(String ownerId, Identity who) {
+        Integer policy = createPolicies.get(ownerId);
+        return ((policy == null ? DEFAULT_CREATE_POLICY : policy) & (1 << who.ordinal())) != 0;
+    }
+
+    /** 修改归属者级的「新增频道」（权限由调用方检查）。 */
+    public void setCreateAllowed(String ownerId, Identity who, boolean allowed) {
+        Integer policy = createPolicies.get(ownerId);
+        int mask = policy == null ? DEFAULT_CREATE_POLICY : policy;
+        mask = allowed ? mask | (1 << who.ordinal()) : mask & ~(1 << who.ordinal());
+        createPolicies.put(ownerId, mask);
+        markDirty();
+    }
+
+    /** 持久化用：归属者 → 可新增频道的身份位掩码。 */
+    public Map<String, Integer> createPolicies() {
+        return Collections.unmodifiableMap(createPolicies);
+    }
+
+    public void restoreCreatePolicy(String ownerId, int mask) {
+        createPolicies.put(ownerId, mask);
+    }
+
+    /** 修改频道的一项权限（权限由调用方检查），失权的连接端立即断开。 */
+    public boolean setPermission(String channelId, Identity who, Permission permission, boolean allowed) {
+        Channel channel = channels.get(channelId);
+        if (channel == null) {
+            return false;
+        }
+        channel.permissions()
+            .set(who, permission, allowed);
+        markDirty();
+        reevaluateConnections();
+        return true;
+    }
+
+    /** 切换陌生人的私人/公开预设（权限由调用方检查），失权的连接端立即断开。 */
+    public boolean setPublic(String channelId, boolean isPublic) {
+        Channel channel = channels.get(channelId);
+        if (channel == null) {
+            return false;
+        }
+        channel.permissions()
+            .applyStrangerPreset(isPublic);
+        markDirty();
+        reevaluateConnections();
+        return true;
+    }
+
+    /**
+     * 连接者失去「连接」权限的连接端一律断开：已加载的当场更新，未加载的留下墓碑、下次加载时同步。
+     * 身份数据不可用时什么都不做。
+     *
+     * @return 断开的连接端数量
+     */
+    public int reevaluateConnections() {
+        if (!identity.isReady()) {
+            return 0;
+        }
+        int removed = 0;
+        for (Channel channel : channels.values()) {
+            for (Endpoint endpoint : new ArrayList<Endpoint>(channel.endpoints())) {
+                if (!hasPermission(endpoint.connector(), channel, Permission.CONNECT)) {
+                    disconnect(endpoint.endpointId(), DisconnectReason.PERMISSION_LOST);
+                    removed++;
+                }
+            }
+        }
+        return removed;
+    }
+
+    /**
+     * 把一个归属者名下的频道全部转给另一个归属者（队伍解散时用）。同类型重名时频道名后面自动加数字后缀。
+     * 不复查连接端：调用方在身份数据更新之后再调 {@link #reevaluateConnections}。
+     *
+     * @return 转移的频道数
+     */
+    public int transferOwner(String fromOwnerId, String toOwnerId, String toOwnerName) {
+        int moved = 0;
+        for (Channel channel : channels.values()) {
+            if (!channel.ownerId()
+                .equals(fromOwnerId)) {
+                continue;
+            }
+            channel.setName(uniqueName(channel.type(), toOwnerId, channel.name()));
+            channel.setOwner(toOwnerId, toOwnerName);
+            moved++;
+        }
+        createPolicies.remove(fromOwnerId);
+        if (moved > 0) {
+            markDirty();
+        }
+        return moved;
+    }
+
+    private String uniqueName(ChannelType type, String ownerId, String name) {
+        if (!isNameTaken(type, ownerId, name)) {
+            return name;
+        }
+        for (int n = 2;; n++) {
+            String suffix = " " + n;
+            int room = MAX_NAME_LENGTH - suffix.length();
+            String candidate = (name.length() > room ? name.substring(0, room) : name) + suffix;
+            if (!isNameTaken(type, ownerId, candidate)) {
+                return candidate;
+            }
+        }
     }
 
     // ---- 连接端 ----
@@ -362,8 +528,14 @@ public final class ChannelHub {
 
     public void restoreChannel(String id, ChannelType type, String name, int color, String ownerId, String ownerName,
         DistributionMode distribution) {
+        restoreChannel(id, type, name, color, ownerId, ownerName, distribution, new ChannelPermissions());
+    }
+
+    public void restoreChannel(String id, ChannelType type, String name, int color, String ownerId, String ownerName,
+        DistributionMode distribution, ChannelPermissions permissions) {
         Channel channel = new Channel(id, type, name, color, ownerId, ownerName);
         channel.setDistribution(distribution);
+        channel.setPermissions(permissions);
         channels.put(id, channel);
     }
 

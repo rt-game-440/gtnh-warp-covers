@@ -29,7 +29,13 @@ public final class WarpEvents {
 
     private final Deque<int[]> pendingChunks = new ArrayDeque<int[]>();
 
+    /** 管理员和结盟变化没有事件，定时复查连接者的权限兜底。 */
+    private static final int PERMISSION_CHECK_INTERVAL = 20;
+
     private static WarpEvents instance;
+
+    private boolean permissionCheckRequested;
+    private int ticksSinceCheck;
 
     public static void register() {
         instance = new WarpEvents();
@@ -78,8 +84,28 @@ public final class WarpEvents {
 
     @SubscribeEvent
     public void onServerTick(TickEvent.ServerTickEvent event) {
-        if (event.phase == TickEvent.Phase.END && !pendingChunks.isEmpty()) {
+        if (event.phase != TickEvent.Phase.END) {
+            return;
+        }
+        if (!pendingChunks.isEmpty()) {
             processPending(CHUNKS_PER_TICK);
+        }
+        ticksSinceCheck++;
+        if ((permissionCheckRequested || ticksSinceCheck >= PERMISSION_CHECK_INTERVAL) && WarpServices.isInstalled()) {
+            permissionCheckRequested = false;
+            ticksSinceCheck = 0;
+            int removed = WarpServices.hub()
+                .reevaluateConnections();
+            if (removed > 0) {
+                WarpCovers.LOG.info("{} 个连接端因连接者失去权限被断开", removed);
+            }
+        }
+    }
+
+    /** 请求在本 tick 结束时复查连接者权限（团队事件触发时状态可能还没改完）。 */
+    static void requestPermissionCheck() {
+        if (instance != null) {
+            instance.permissionCheckRequested = true;
         }
     }
 

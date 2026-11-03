@@ -14,7 +14,7 @@ public final class WarpWorldData extends WorldSavedData {
 
     public static final String NAME = "warpcovers";
 
-    private final ChannelHub hub = new ChannelHub(WarpServices.CONFIG);
+    private final ChannelHub hub = new ChannelHub(WarpServices.CONFIG, WarpServices.identity());
 
     /** {@link net.minecraft.world.storage.MapStorage} 通过反射调用这个构造函数。 */
     public WarpWorldData(String name) {

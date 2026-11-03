@@ -7,6 +7,12 @@ final class FakeConfig implements ConfigPort {
     long rateCap = 0;
     int defaultPeriod = 20;
     int minPeriod = 1;
+    int maxChannels = 0;
+
+    @Override
+    public int maxChannelsPerOwnerPerType() {
+        return maxChannels;
+    }
 
     @Override
     public boolean isEnabled(ChannelType type) {

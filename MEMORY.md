@@ -1,5 +1,6 @@
 # 开发记忆
 
+- 2026-11-03 16:44 ServerUtilities 身份适配（`gt/ServerUtilitiesIdentity`）：`ForgeTeam.setStatus`（管理员、盟友变化）不发事件，靠 `WarpEvents` 每 20 tick 复查；退队事件在状态改完之前发出，所以事件里只设标记，到 tick END 再复查。`Universe.loaded()` 在 `FMLServerAboutToStart` 就为 true，队伍数据到 `onServerStarted` 才加载，所以不能在 tick 之前做失权判定。自检造假玩家要自己设 `player.team`，入队用 `forceAddMember`（`addMember` 要求已被邀请）。归属者为空串的频道（自检直接建的）所有人都算管理者，所以旧场景不受权限影响。
 - 2026-11-03 16:28 传输时钟统一用服务器 tick（`MinecraftServer.getTickCounter()`）：GT 传给 `doCoverThings` 的 aTickTimer 是每台机器各自的计时器，不能用于输出端接收窗口和状态栏。自检要控制时间就调 `WarpCover.tickAt(now)`，不要调 `doCoverThings`。
 - 2026-11-03 16:28 ModularUI2 `TextFieldWidget` 的数字模式（`setNumbers*`）经过 double 计算且可能带格式化，大数丢精度；`LongSyncValue.setStringValue` 又直接 `Long.parseLong`。所以数字框用 `setValidator` + `core/NumberInput` 规范成纯整数。
 - 2026-11-03 16:07 能量端口（`gt/GtEnergyPort`）：充能用 `IBasicEnergyContainer.increaseStoredEnergyUnits(n, true)` 直接加内部储能，不走 `injectEnergyUnits`，所以不判电压、不会爆炸；抽取 `decreaseStoredEnergyUnits(n, false)`，只抽 `getOutputVoltage() > 0` 的机器。贴放限制用 `CoverRegistry.registerCover(stack, tex, factory, CoverPlacer.builder().onlyPlaceIf(...).build())`，GT 右键贴覆盖板前会调 `isCoverPlaceable`。能量类型 `ChannelType.hasFilter()` 为 false，核心与面板跳过名单。自检里露天 GT 电器淋雨、下界挨岩浆会爆炸，要清天气、用石头围住。

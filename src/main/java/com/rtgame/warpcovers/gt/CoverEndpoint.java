@@ -14,6 +14,7 @@ import com.rtgame.warpcovers.core.EndpointHost;
 import com.rtgame.warpcovers.core.InteractionState;
 import com.rtgame.warpcovers.core.Location;
 import com.rtgame.warpcovers.core.MachinePort;
+import com.rtgame.warpcovers.core.Permission;
 import com.rtgame.warpcovers.core.ReconcileResult;
 import com.rtgame.warpcovers.core.TransferResult;
 
@@ -135,9 +136,16 @@ public final class CoverEndpoint implements EndpointHost {
                 clearChannel(result.reason());
                 break;
             case REATTACH:
-                // 物品化后重贴：新的连接端 ID，排在连接顺序末尾，贴者为连接者
+                // 物品化后重贴：新的连接端 ID，排在连接顺序末尾，贴者为连接者；贴者没有连接权限时只断开频道
+                String connector = connectorFor(tile);
+                Channel channel = hub.findChannel(channelId);
+                if (hub.identity()
+                    .isReady() && !hub.hasPermission(connector, channel, Permission.CONNECT)) {
+                    clearChannel(DisconnectReason.NO_PERMISSION);
+                    break;
+                }
                 endpointId = newId();
-                hub.connect(channelId, endpointId, location, connectorFor(tile), config, port, this);
+                hub.connect(channelId, endpointId, location, connector, config, port, this);
                 refreshChannelName(hub);
                 changeListener.run();
                 break;
