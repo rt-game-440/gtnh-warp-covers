@@ -48,11 +48,63 @@ public final class ChannelHub {
 
     // ---- 频道 ----
 
+    /** 频道名最长字符数。 */
+    public static final int MAX_NAME_LENGTH = 32;
+
+    /** 不做任何校验地新建频道（无归属者、默认颜色），供自检与测试使用。 */
     public Channel createChannel(ChannelType type, String name) {
-        String id = UUID.randomUUID()
+        return addChannel(new Channel(newId(), type, name));
+    }
+
+    /**
+     * 玩家新增频道：名字去掉首尾空白后不能为空、不能超长，同一归属者下同类型不能重名。
+     *
+     * @param color 0xRRGGBB
+     */
+    public ChannelCreation createChannel(ChannelType type, String name, String ownerId, String ownerName, int color) {
+        String trimmed = name == null ? "" : name.trim();
+        CreateFailure failure = validateName(type, ownerId, trimmed);
+        if (failure != null) {
+            return ChannelCreation.failure(failure);
+        }
+        return ChannelCreation.success(addChannel(new Channel(newId(), type, trimmed, color, ownerId, ownerName)));
+    }
+
+    /** 新频道名的校验结果；可以使用时返回 null。名字需事先去掉首尾空白。 */
+    public CreateFailure validateName(ChannelType type, String ownerId, String trimmedName) {
+        if (trimmedName.isEmpty()) {
+            return CreateFailure.EMPTY_NAME;
+        }
+        if (trimmedName.length() > MAX_NAME_LENGTH) {
+            return CreateFailure.NAME_TOO_LONG;
+        }
+        if (isNameTaken(type, ownerId, trimmedName)) {
+            return CreateFailure.DUPLICATE_NAME;
+        }
+        return null;
+    }
+
+    /** 同一归属者下是否已有同类型同名频道。 */
+    public boolean isNameTaken(ChannelType type, String ownerId, String name) {
+        String owner = ownerId == null ? "" : ownerId;
+        for (Channel channel : channels.values()) {
+            if (channel.type() == type && channel.ownerId()
+                .equals(owner)
+                && channel.name()
+                    .equals(name)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static String newId() {
+        return UUID.randomUUID()
             .toString();
-        Channel channel = new Channel(id, type, name);
-        channels.put(id, channel);
+    }
+
+    private Channel addChannel(Channel channel) {
+        channels.put(channel.id(), channel);
         markDirty();
         return channel;
     }
@@ -276,6 +328,10 @@ public final class ChannelHub {
         channels.put(id, new Channel(id, type, name));
     }
 
+    public void restoreChannel(String id, ChannelType type, String name, int color, String ownerId, String ownerName) {
+        channels.put(id, new Channel(id, type, name, color, ownerId, ownerName));
+    }
+
     /** 恢复一条索引；频道不存在时丢弃。调用前须先恢复频道。 */
     public void restoreEndpoint(String endpointId, String channelId, long connectOrder, Location location,
         String connector, String machineName, InteractionState state) {
@@ -326,31 +382,122 @@ public final class ChannelHub {
         if (channel == null || !config.isEnabled(channel.type()) || now < input.nextRunTime()) {
             return TransferResult.NONE;
         }
-        input.setNextRunTime(now + Math.max(config.minPeriodTicks(), config.defaultPeriodTicks()));
+        input.setNextRunTime(now + periodOf(input));
 
         List<Endpoint> outputs = collectOutputs(channel, input);
         if (outputs.isEmpty()) {
+            EndpointStatus missing = peerAvailability(channel, input, InteractionState.OUTPUT);
+            input.setStatus(missing == null ? EndpointStatus.NO_PEER : missing, now);
             return TransferResult.NONE;
         }
         long cap = config.globalRateCap(channel.type());
         long quota = cap <= 0 ? Long.MAX_VALUE : cap;
         long transferred = 0;
         long lost = 0;
+        boolean anyOffered = false;
+        boolean anyAllowedBySelf = false;
+        boolean anyAllowedByPeer = false;
         for (ObjectStack offered : input.port()
             .extractable()) {
             if (quota <= 0) {
                 break;
             }
-            if (offered.amount() <= 0 || !input.filter()
+            if (offered.amount() <= 0) {
+                continue;
+            }
+            anyOffered = true;
+            if (!input.filter()
                 .allows(offered.key())) {
                 continue;
             }
-            TransferResult moved = moveKey(input, outputs, offered.key(), Math.min(offered.amount(), quota));
+            anyAllowedBySelf = true;
+            if (anyAllows(outputs, offered.key())) {
+                anyAllowedByPeer = true;
+            }
+            TransferResult moved = moveKey(input, outputs, offered.key(), Math.min(offered.amount(), quota), now);
             transferred += moved.transferred();
             lost += moved.lost();
             quota -= moved.transferred();
         }
+        EndpointStatus status;
+        if (transferred > 0) {
+            status = EndpointStatus.TRANSFERRING;
+        } else if (!anyOffered) {
+            status = EndpointStatus.SOURCE_EMPTY;
+        } else if (!anyAllowedBySelf || !anyAllowedByPeer) {
+            status = EndpointStatus.FILTERED;
+        } else {
+            status = EndpointStatus.PEER_FULL;
+        }
+        input.setStatus(status, now);
         return new TransferResult(transferred, lost);
+    }
+
+    /** 实际运行周期（tick）。 */
+    private long periodOf(Endpoint endpoint) {
+        return Math.max(1, Math.max(config.minPeriodTicks(), config.defaultPeriodTicks()));
+    }
+
+    private static boolean anyAllows(List<Endpoint> outputs, String key) {
+        for (Endpoint output : outputs) {
+            if (output.filter()
+                .allows(key)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * 频道里有没有可用的对端（指定交互状态、不在同一方块）。有已加载的返回 null；只有未加载的返回
+     * {@link EndpointStatus#PEER_UNLOADED}；一个都没有返回 {@link EndpointStatus#NO_PEER}。
+     */
+    private static EndpointStatus peerAvailability(Channel channel, Endpoint self, InteractionState peerState) {
+        boolean anyUnloaded = false;
+        for (Endpoint candidate : channel.endpoints()) {
+            if (candidate == self || candidate.state() != peerState
+                || candidate.location()
+                    .sameBlock(self.location())) {
+                continue;
+            }
+            if (candidate.isLoaded()) {
+                return null;
+            }
+            anyUnloaded = true;
+        }
+        return anyUnloaded ? EndpointStatus.PEER_UNLOADED : EndpointStatus.NO_PEER;
+    }
+
+    /**
+     * 连接端当前状态（界面状态栏用）。输入端取最近一个周期的结果；输出端取最近被输入端访问的结果；
+     * 结果太旧（超过两个周期）时为「等待中」。
+     *
+     * @param now 与 {@link #driveInput} 同一个时钟
+     */
+    public EndpointStatus statusOf(String endpointId, long now) {
+        Endpoint endpoint = endpoints.get(endpointId);
+        Channel channel = endpoint == null ? null : channels.get(endpoint.channelId());
+        if (channel == null) {
+            return EndpointStatus.UNCONNECTED;
+        }
+        if (!config.isEnabled(channel.type())) {
+            return EndpointStatus.DISABLED;
+        }
+        if (endpoint.state() == InteractionState.EMPTY) {
+            return EndpointStatus.IDLE;
+        }
+        InteractionState peerState = endpoint.state() == InteractionState.INPUT ? InteractionState.OUTPUT
+            : InteractionState.INPUT;
+        EndpointStatus missing = peerAvailability(channel, endpoint, peerState);
+        if (missing != null) {
+            return missing;
+        }
+        EndpointStatus last = endpoint.lastStatus();
+        long age = now - endpoint.lastStatusTime();
+        if (last != null && age >= 0 && age <= 2 * periodOf(endpoint) + 20) {
+            return last;
+        }
+        return EndpointStatus.WAITING;
     }
 
     /** 同一频道里已加载、状态为输出、且和输入端不在同一方块的连接端，按连接顺序。 */
@@ -370,7 +517,7 @@ public final class ChannelHub {
     }
 
     /** 把一种物体依次送给各输出端。返回实际搬运量与丢失量。先模拟、再实际抽取、再插入。 */
-    private TransferResult moveKey(Endpoint input, List<Endpoint> outputs, String key, long want) {
+    private TransferResult moveKey(Endpoint input, List<Endpoint> outputs, String key, long want, long now) {
         long remaining = want;
         long moved = 0;
         long lost = 0;
@@ -380,11 +527,13 @@ public final class ChannelHub {
             }
             if (!output.filter()
                 .allows(key)) {
+                output.noteReceived(EndpointStatus.FILTERED, now);
                 continue;
             }
             long accept = output.port()
                 .insert(key, remaining, true);
             if (accept <= 0) {
+                output.noteReceived(EndpointStatus.SELF_FULL, now);
                 continue;
             }
             long taken = input.port()
@@ -399,6 +548,7 @@ public final class ChannelHub {
             if (inserted < taken) {
                 lost += giveBack(input, outputs, output, key, taken - inserted);
             }
+            output.noteReceived(inserted > 0 ? EndpointStatus.TRANSFERRING : EndpointStatus.SELF_FULL, now);
             moved += inserted;
             remaining -= inserted;
         }

@@ -10,13 +10,26 @@ public final class Channel {
     private final String id;
     private final ChannelType type;
     private String name;
+    /** 显示颜色，0xRRGGBB。 */
+    private int color;
+    /** 归属者 ID（如 {@code player:<uuid>}），旧存档里为空。 */
+    private String ownerId;
+    /** 归属者显示名，只作展示缓存。 */
+    private String ownerName;
     /** 按连接顺序号升序。 */
     private final List<Endpoint> endpoints = new ArrayList<Endpoint>();
 
     Channel(String id, ChannelType type, String name) {
+        this(id, type, name, ChannelColors.DEFAULT, "", "");
+    }
+
+    Channel(String id, ChannelType type, String name, int color, String ownerId, String ownerName) {
         this.id = id;
         this.type = type;
         this.name = name;
+        this.color = color & 0xFFFFFF;
+        this.ownerId = ownerId == null ? "" : ownerId;
+        this.ownerName = ownerName == null ? "" : ownerName;
     }
 
     /** 内部 ID，不可变（ADR-0002）。 */
@@ -35,6 +48,27 @@ public final class Channel {
 
     void setName(String name) {
         this.name = name;
+    }
+
+    public int color() {
+        return color;
+    }
+
+    void setColor(int color) {
+        this.color = color & 0xFFFFFF;
+    }
+
+    public String ownerId() {
+        return ownerId;
+    }
+
+    public String ownerName() {
+        return ownerName;
+    }
+
+    void setOwner(String ownerId, String ownerName) {
+        this.ownerId = ownerId == null ? "" : ownerId;
+        this.ownerName = ownerName == null ? "" : ownerName;
     }
 
     /** 当前连在频道上的连接端，按连接顺序号升序。 */

@@ -19,6 +19,7 @@ import net.minecraft.nbt.NBTTagCompound;
 import org.junit.jupiter.api.Test;
 
 import com.rtgame.warpcovers.core.Channel;
+import com.rtgame.warpcovers.core.ChannelColors;
 import com.rtgame.warpcovers.core.ChannelHub;
 import com.rtgame.warpcovers.core.ChannelType;
 import com.rtgame.warpcovers.core.ConfigPort;
@@ -113,6 +114,40 @@ class HubNbtTest {
                 .get("gone")
                 .reason());
         assertEquals(hub.nextConnectOrder(), restored.nextConnectOrder());
+    }
+
+    @Test
+    void 频道颜色与归属者存档往返() throws IOException {
+        ChannelHub hub = new ChannelHub(CONFIG);
+        Channel channel = hub.createChannel(ChannelType.FLUID, "红色频道", "player:uuid-a", "Alice", 0xB3312C)
+            .channel();
+
+        ChannelHub restored = new ChannelHub(CONFIG);
+        HubNbt.read(throughBytes(HubNbt.write(hub)), restored);
+
+        Channel back = restored.findChannel(channel.id());
+        assertEquals(0xB3312C, back.color());
+        assertEquals("player:uuid-a", back.ownerId());
+        assertEquals("Alice", back.ownerName());
+    }
+
+    @Test
+    void 旧存档缺颜色与归属者时取默认() {
+        NBTTagCompound root = HubNbt.write(new ChannelHub(CONFIG));
+        NBTTagCompound old = new NBTTagCompound();
+        old.setString("id", "old");
+        old.setString("type", "fluid");
+        old.setString("name", "旧频道");
+        root.getTagList("channels", 10)
+            .appendTag(old);
+
+        ChannelHub restored = new ChannelHub(CONFIG);
+        HubNbt.read(root, restored);
+
+        Channel back = restored.findChannel("old");
+        assertEquals(ChannelColors.DEFAULT, back.color());
+        assertEquals("", back.ownerId());
+        assertEquals("", back.ownerName());
     }
 
     @Test

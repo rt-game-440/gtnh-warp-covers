@@ -18,3 +18,58 @@ warpcovers.tooltip.priority=优先级：%d
 warpcovers.tooltip.rate=速率：%d / 周期
 warpcovers.tooltip.period=周期：%d tick
 warpcovers.tooltip.clear_hint=单独放入合成台可清空配置
+
+# 覆盖板界面
+warpcovers.gui.tab.channels=频道
+warpcovers.gui.tab.settings=设置
+warpcovers.gui.new_channel=新增频道
+warpcovers.gui.no_channels=还没有频道，点「新增频道」创建一个
+warpcovers.gui.owner=归属者：%s
+warpcovers.gui.row.connect=左键连接到此频道
+warpcovers.gui.row.disconnect=左键断开此频道
+warpcovers.gui.state_tip.input=输入：从本机器抽取，送往频道里的输出端
+warpcovers.gui.state_tip.output=输出：接收频道里输入端送来的物体
+warpcovers.gui.state_tip.empty=空：保持连接但不收发
+warpcovers.gui.dialog.title=新增频道
+warpcovers.gui.dialog.name=频道名称
+warpcovers.gui.dialog.connect=创建后直接连接
+warpcovers.gui.dialog.confirm=确定
+warpcovers.gui.dialog.cancel=取消
+warpcovers.gui.filter.toggle=切换白名单 / 黑名单
+warpcovers.gui.filter.whitelist=白名单：只传输列出的流体
+warpcovers.gui.filter.blacklist=黑名单：不传输列出的流体
+warpcovers.gui.filter.clear=清空名单
+warpcovers.gui.filter.add=拿着流体容器点击，或从 NEI 拖入流体，加入名单
+warpcovers.gui.filter.hint=放入流体容器或从 NEI 拖入以添加
+warpcovers.gui.filter.empty=名单为空
+warpcovers.gui.filter.remove=从名单中移除
+warpcovers.gui.status=状态：%s
+warpcovers.gui.reason=最近断开：%s
+
+# 连接端状态
+warpcovers.status.unconnected=未连接
+warpcovers.status.disabled=服务器已禁用
+warpcovers.status.idle=空闲（交互状态为空）
+warpcovers.status.waiting=等待中
+warpcovers.status.transferring=传输中
+warpcovers.status.no_peer=频道里没有对端
+warpcovers.status.peer_unloaded=对端未加载
+warpcovers.status.peer_full=对端已满
+warpcovers.status.self_full=本机已满
+warpcovers.status.filtered=被名单过滤
+warpcovers.status.source_empty=没有可传输的物体
+
+# 断开原因
+warpcovers.reason.channel_deleted=频道已被删除
+warpcovers.reason.permission_lost=连接者失权被断开
+warpcovers.reason.no_permission=贴上者没有连接权限
+
+# 操作提示
+warpcovers.notice.created=已创建频道「%s」
+warpcovers.notice.created_connected=已创建并连接频道「%s」
+warpcovers.notice.connected=已连接频道「%s」
+warpcovers.notice.disconnected=已断开频道「%s」
+warpcovers.notice.channel_missing=频道不存在或已被删除
+warpcovers.notice.empty_name=频道名称不能为空
+warpcovers.notice.name_too_long=频道名称太长（最多 32 个字符）
+warpcovers.notice.duplicate_name=你已经有名为「%s」的同类型频道

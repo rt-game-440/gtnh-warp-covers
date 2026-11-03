@@ -29,12 +29,14 @@ public final class FilterList {
         this.matchNbt = matchNbt;
     }
 
-    public void add(String key) {
-        keys.add(key);
+    /** @return 原来不在名单里 */
+    public boolean add(String key) {
+        return keys.add(key);
     }
 
-    public void remove(String key) {
-        keys.remove(key);
+    /** @return 原来在名单里 */
+    public boolean remove(String key) {
+        return keys.remove(key);
     }
 
     public void clear() {

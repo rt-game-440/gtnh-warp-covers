@@ -48,6 +48,11 @@ public final class Location {
         return z >> 4;
     }
 
+    /** 是否同一个方块（不看面）。 */
+    public boolean sameBlock(Location other) {
+        return other != null && dimension == other.dimension && x == other.x && y == other.y && z == other.z;
+    }
+
     public boolean inChunk(int dim, int cx, int cz) {
         return dimension == dim && chunkX() == cx && chunkZ() == cz;
     }

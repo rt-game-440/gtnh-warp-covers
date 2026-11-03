@@ -11,6 +11,7 @@ import net.minecraft.nbt.NBTTagList;
 
 import com.rtgame.warpcovers.WarpCovers;
 import com.rtgame.warpcovers.core.Channel;
+import com.rtgame.warpcovers.core.ChannelColors;
 import com.rtgame.warpcovers.core.ChannelHub;
 import com.rtgame.warpcovers.core.ChannelType;
 import com.rtgame.warpcovers.core.DisconnectReason;
@@ -45,6 +46,9 @@ public final class HubNbt {
                 channel.type()
                     .key());
             tag.setString("name", channel.name());
+            tag.setInteger("color", channel.color());
+            tag.setString("owner", channel.ownerId());
+            tag.setString("ownerName", channel.ownerName());
             channels.appendTag(tag);
         }
         root.setTag("channels", channels);
@@ -109,7 +113,14 @@ public final class HubNbt {
                 WarpCovers.LOG.warn("跳过无法识别的频道: {}", tag);
                 continue;
             }
-            hub.restoreChannel(id, type, tag.getString("name"));
+            int color = tag.hasKey("color") ? tag.getInteger("color") : ChannelColors.DEFAULT;
+            hub.restoreChannel(
+                id,
+                type,
+                tag.getString("name"),
+                color,
+                tag.getString("owner"),
+                tag.getString("ownerName"));
         }
         NBTTagList endpoints = root.getTagList("endpoints", TAG_COMPOUND);
         for (int i = 0; i < endpoints.tagCount(); i++) {

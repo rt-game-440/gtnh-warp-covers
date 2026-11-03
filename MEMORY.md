@@ -1,5 +1,9 @@
 # 开发记忆
 
+- 2026-11-03 15:00 GT 2.9.0 覆盖板界面走 ModularUI2：覆盖板重写 `getCoverGui()` 返回 `CoverBaseGui` 子类（见 `gt/WarpCoverGui`）；`Cover.onCoverShiftRightClick(player)` 在 `GTGuis.GLOBAL_SWITCH_MUI2` 下调 `CoverUIFactory.INSTANCE.open(...)` 打开界面。开发环境可用 `/warpcovers_selfcheck gui <x> <y> <z> <面>` 直接打开，截图不必模拟蹲下右键。
+- 2026-11-03 15:00 界面快照与动作：服务器端 `CoverPanel` 产出快照（`gt/PanelSnapshot` 转 NBT 经 `GenericSyncValue` 下发），所有操作走 `registerSyncedAction(key, false, true, …)` 只在服务器执行；客户端只做预检（重名、空名、超长）。核心测试替身是 `core` 包私有类，`gt` 包测试要内联最小实现。
+- 2026-11-03 15:00 用户常在同一台电脑上玩 GTNH 实例；windows-mcp 返回 `USER_CONTROL`（系统空闲时间≈0）时不要启动开发客户端或抢桌面，把 3 级截图推迟到桌面空闲时统一采集。
+
 - 2026-11-03 14:20 GTNH 的 Hodgepodge（MixinChunkProviderServer_FastUnload 覆写 `unloadQueuedChunks`）会把加载时尚未填充的新区块及其 8 邻保护 600 tick 不卸载；自检里在同一 tick 卸载区块前要反射调 `ChunkGenScheduler.forDimension(dim).onChunkUnload(chunkXZ2Int)` 解除保护（见 `selfcheck/ScenarioWorld.unloadChunk`）。只在区块首次生成时复现，磁盘上已有区块不触发。
 - 2026-11-03 14:20 GT 机器读档后 `mTickTimer` 同样从 0 开始，重启后的自检校验也要先 `warmUp` 再 fill/drain。
 - 2026-11-03 14:20 覆盖板配置随物品走：`Cover.asItemStack()` 被 `detachCover` 与掉落使用（`GTOreDictUnificator.get` 保留 NBT），放置时构造函数里 `CoverContext.getCoverItem()` 就是手持的带 NBT 物品；但随机器物品重放（`buildCoverFromNbt`）走 `readFromNbt`，没有 `onPlayerAttach`，连接者用机器归属者兜底。`allowsCopyPasteTool` 要关掉，否则会复制连接端 ID。

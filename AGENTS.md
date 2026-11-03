@@ -24,6 +24,7 @@ Issue 和 spec 记录在 GitHub Issues（`rt-game-440/gtnh-warp-covers`），使
 - 单元测试（JUnit 5）：`./scripts/test.ps1`，可追加 gradle 参数，如 `--tests "*SelfCheck*"`。
 - 服务器自检：`./scripts/selfcheck.ps1 [-Scenario gt_hull_smoke]`。自动启动开发服务器 → 布置 → 停服 → 重启 → 校验，退出码 0 为通过。
   - 自检命令 `/warpcovers_selfcheck <setup|verify> <场景>` 仅开发环境注册，发布版不含；结果写入项目 `logs/yyyy-MM-dd HH-mm-ss.log` 的 `[RESULT]` 行。
+  - 截图辅助：开发客户端里 `/warpcovers_selfcheck gui <x> <y> <z> <面>` 直接打开该面覆盖板的界面（等同蹲下右键）。
   - 新场景实现 `SelfCheckScenario` 并在 `CommonProxy.serverStarting` 登记。
 - 主代码与测试代码只能使用 Java 8 API（Jabel 仅提供新语法），例如不能用 `List.of`、`Files.writeString`。
 - 模组 ID `warpcovers`，包名 `com.rtgame.warpcovers`；GT5-Unofficial 为硬依赖，ServerUtilities 为可选依赖。

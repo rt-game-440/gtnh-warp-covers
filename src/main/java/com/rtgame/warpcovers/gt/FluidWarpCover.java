@@ -15,18 +15,20 @@ import com.rtgame.warpcovers.core.EndpointConfig;
 import com.rtgame.warpcovers.core.FilterList;
 import com.rtgame.warpcovers.core.InteractionState;
 import com.rtgame.warpcovers.core.MachinePort;
+import com.rtgame.warpcovers.core.PanelEndpoint;
 
 import gregtech.api.covers.CoverContext;
 import gregtech.api.interfaces.ITexture;
 import gregtech.api.interfaces.tileentity.ICoverable;
 import gregtech.common.covers.Cover;
+import gregtech.common.gui.modularui.cover.base.CoverBaseGui;
 
 /**
  * 流体折跃覆盖板：GT 覆盖板与频道核心之间的适配层。
  * 覆盖板自己持有连接端（频道、交互状态、名单等，随覆盖板数据存盘）；传输规则全部在核心里。
  * 撬下或挖掉机器时配置随物品保留。
  */
-public class FluidWarpCover extends Cover implements EndpointCarrier {
+public class FluidWarpCover extends Cover implements EndpointCarrier, PanelEndpoint {
 
     private final CoverEndpoint endpoint;
 
@@ -55,16 +57,18 @@ public class FluidWarpCover extends Cover implements EndpointCarrier {
         }
     }
 
-    // ---- 对外操作（GUI 议题落地前由自检场景调用） ----
+    // ---- 对外操作（界面经 CoverPanel 调用，自检场景直接调用） ----
 
     public CoverEndpoint endpoint() {
         return endpoint;
     }
 
+    @Override
     public String endpointId() {
         return endpoint.endpointId();
     }
 
+    @Override
     public String channelId() {
         return endpoint.channelId();
     }
@@ -79,21 +83,30 @@ public class FluidWarpCover extends Cover implements EndpointCarrier {
             .filter();
     }
 
+    @Override
     public EndpointConfig config() {
         return endpoint.config();
     }
 
+    @Override
     public DisconnectReason lastReason() {
         return endpoint.lastReason();
     }
 
     /** 连接到频道；频道不存在时抛出 IllegalArgumentException。 */
+    @Override
     public void connect(String newChannelId, String connector) {
         endpoint.connect(requireTile(), coverSide, newChannelId, connector);
     }
 
+    @Override
     public void disconnect() {
         endpoint.disconnect();
+    }
+
+    @Override
+    public void configChanged() {
+        endpoint.configChanged();
     }
 
     public void setInteractionState(InteractionState newState) {
@@ -185,6 +198,16 @@ public class FluidWarpCover extends Cover implements EndpointCarrier {
             WarpCoverItem.setConfig(stack, config);
         }
         return stack;
+    }
+
+    @Override
+    public boolean hasCoverGUI() {
+        return true;
+    }
+
+    @Override
+    protected @Nonnull CoverBaseGui<?> getCoverGui() {
+        return new WarpCoverGui(this);
     }
 
     @Override

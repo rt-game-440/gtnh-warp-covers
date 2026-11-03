@@ -18,3 +18,58 @@ warpcovers.tooltip.priority=Priority: %d
 warpcovers.tooltip.rate=Rate: %d per period
 warpcovers.tooltip.period=Period: %d ticks
 warpcovers.tooltip.clear_hint=Craft alone to clear its configuration
+
+# Cover GUI
+warpcovers.gui.tab.channels=Channels
+warpcovers.gui.tab.settings=Settings
+warpcovers.gui.new_channel=New Channel
+warpcovers.gui.no_channels=No channels yet. Click "New Channel" to create one
+warpcovers.gui.owner=Owner: %s
+warpcovers.gui.row.connect=Left-click to connect to this channel
+warpcovers.gui.row.disconnect=Left-click to disconnect from this channel
+warpcovers.gui.state_tip.input=Input: extract from this machine and send to the channel's outputs
+warpcovers.gui.state_tip.output=Output: receive what the channel's inputs send
+warpcovers.gui.state_tip.empty=Idle: stay connected without sending or receiving
+warpcovers.gui.dialog.title=New Channel
+warpcovers.gui.dialog.name=Channel name
+warpcovers.gui.dialog.connect=Connect after creating
+warpcovers.gui.dialog.confirm=Create
+warpcovers.gui.dialog.cancel=Cancel
+warpcovers.gui.filter.toggle=Toggle whitelist / blacklist
+warpcovers.gui.filter.whitelist=Whitelist: only listed fluids are sent
+warpcovers.gui.filter.blacklist=Blacklist: listed fluids are not sent
+warpcovers.gui.filter.clear=Clear the list
+warpcovers.gui.filter.add=Click with a fluid container, or drag a fluid from NEI, to add it
+warpcovers.gui.filter.hint=Insert a fluid container or drag from NEI
+warpcovers.gui.filter.empty=The list is empty
+warpcovers.gui.filter.remove=Remove from the list
+warpcovers.gui.status=Status: %s
+warpcovers.gui.reason=Last disconnected: %s
+
+# Endpoint status
+warpcovers.status.unconnected=Not connected
+warpcovers.status.disabled=Disabled by the server
+warpcovers.status.idle=Idle (mode is Idle)
+warpcovers.status.waiting=Waiting
+warpcovers.status.transferring=Transferring
+warpcovers.status.no_peer=No counterpart in the channel
+warpcovers.status.peer_unloaded=Counterpart not loaded
+warpcovers.status.peer_full=Counterpart is full
+warpcovers.status.self_full=This machine is full
+warpcovers.status.filtered=Blocked by a filter list
+warpcovers.status.source_empty=Nothing to transfer
+
+# Disconnect reasons
+warpcovers.reason.channel_deleted=The channel was deleted
+warpcovers.reason.permission_lost=The connector lost permission
+warpcovers.reason.no_permission=The placer has no permission to connect
+
+# Notices
+warpcovers.notice.created=Created channel "%s"
+warpcovers.notice.created_connected=Created and connected to channel "%s"
+warpcovers.notice.connected=Connected to channel "%s"
+warpcovers.notice.disconnected=Disconnected from channel "%s"
+warpcovers.notice.channel_missing=The channel does not exist or was deleted
+warpcovers.notice.empty_name=The channel name cannot be empty
+warpcovers.notice.name_too_long=The channel name is too long (32 characters max)
+warpcovers.notice.duplicate_name=You already have a channel of this type named "%s"

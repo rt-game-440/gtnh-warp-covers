@@ -22,6 +22,9 @@ public final class Endpoint {
     /** 下次允许运行的世界时间。 */
     private long nextRunTime = Long.MIN_VALUE;
     private long lastSeenTime = Long.MIN_VALUE;
+    /** 最近一次传输尝试得出的状态（只在内存里）。 */
+    private EndpointStatus lastStatus;
+    private long lastStatusTime = Long.MIN_VALUE;
 
     Endpoint(String endpointId, String channelId, long connectOrder, Location location, String connector,
         EndpointConfig config) {
@@ -128,5 +131,40 @@ public final class Endpoint {
 
     void setNextRunTime(long nextRunTime) {
         this.nextRunTime = nextRunTime;
+    }
+
+    EndpointStatus lastStatus() {
+        return lastStatus;
+    }
+
+    long lastStatusTime() {
+        return lastStatusTime;
+    }
+
+    /** 记录输入端本周期的结果。 */
+    void setStatus(EndpointStatus status, long now) {
+        this.lastStatus = status;
+        this.lastStatusTime = now;
+    }
+
+    /** 记录输出端被访问的结果；同一时刻有多个输入端时只升级不降级（传输中 &gt; 自身已满 &gt; 被名单过滤）。 */
+    void noteReceived(EndpointStatus status, long now) {
+        if (now == lastStatusTime && rank(lastStatus) >= rank(status)) {
+            return;
+        }
+        setStatus(status, now);
+    }
+
+    private static int rank(EndpointStatus status) {
+        if (status == EndpointStatus.TRANSFERRING) {
+            return 3;
+        }
+        if (status == EndpointStatus.SELF_FULL) {
+            return 2;
+        }
+        if (status == EndpointStatus.FILTERED) {
+            return 1;
+        }
+        return 0;
     }
 }
