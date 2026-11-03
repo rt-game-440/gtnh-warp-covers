@@ -1,7 +1,9 @@
 package com.rtgame.warpcovers.gt;
 
 import java.util.Random;
+import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
+import java.util.function.Function;
 import java.util.function.Supplier;
 
 import net.minecraft.entity.player.EntityPlayer;
@@ -49,13 +51,19 @@ import com.cleanroommc.modularui.widgets.slot.ModularSlot;
 import com.cleanroommc.modularui.widgets.slot.PhantomItemSlot;
 import com.cleanroommc.modularui.widgets.textfield.TextFieldWidget;
 import com.rtgame.warpcovers.WarpCovers;
+import com.rtgame.warpcovers.core.ChannelAdmin;
+import com.rtgame.warpcovers.core.ChannelColors;
 import com.rtgame.warpcovers.core.ChannelHub;
 import com.rtgame.warpcovers.core.ChannelType;
 import com.rtgame.warpcovers.core.CoverPanel;
 import com.rtgame.warpcovers.core.CreateFailure;
+import com.rtgame.warpcovers.core.DistributionMode;
+import com.rtgame.warpcovers.core.Identity;
 import com.rtgame.warpcovers.core.InteractionState;
 import com.rtgame.warpcovers.core.NumberInput;
 import com.rtgame.warpcovers.core.ObjectKeys;
+import com.rtgame.warpcovers.core.PanelNotice;
+import com.rtgame.warpcovers.core.Permission;
 import com.rtgame.warpcovers.core.Viewer;
 
 import gregtech.api.modularui2.CoverGuiData;
@@ -86,6 +94,17 @@ public final class WarpCoverGui extends CoverBaseGui<WarpCover> {
     private static final int TEXT_COLOR = 0xFF555555;
     private static final int OWNER_COLOR = 0xFF888888;
     private static final int ERROR_COLOR = 0xFFAA0000;
+
+    /** 频道配置面板：左栏名称、颜色、分发，右栏权限矩阵。 */
+    private static final int CFG_W = 300;
+    private static final int CFG_H = 134;
+    private static final int CFG_LEFT_W = 148;
+    private static final int CFG_RIGHT_X = 160;
+    private static final int MATRIX_LABEL_W = 40;
+    private static final int MATRIX_CELL = 16;
+    private static final int MATRIX_HEADER_Y = 20;
+    private static final int MATRIX_ROW_H = 12;
+    private static final int SWATCH = 11;
 
     private static final InteractionState[] STATES = { InteractionState.INPUT, InteractionState.OUTPUT,
         InteractionState.EMPTY };
@@ -140,6 +159,15 @@ public final class WarpCoverGui extends CoverBaseGui<WarpCover> {
         private final LongSyncValue effectiveRate;
         private final LongSyncValue effectivePeriod;
         private IPanelHandler createDialog;
+        private IPanelHandler configDialog;
+        private IPanelHandler deleteDialog;
+        /** 配置面板正在编辑的频道。 */
+        private String configChannelId = "";
+        /** 配置面板打开后是否操作过：操作过才显示服务端的反馈，避免显示打开前的旧提示。 */
+        private boolean configActed;
+        private String configLocalError = "";
+        private NBTTagCompound parsedChannels;
+        private PanelSnapshot.ChannelsView parsedView;
 
         Session(PanelSyncManager sync) {
             this.sync = sync;
@@ -217,6 +245,7 @@ public final class WarpCoverGui extends CoverBaseGui<WarpCover> {
             action("matchnbt", buf -> panel.setMatchNbt(buf.readBoolean()));
             action("remove", buf -> panel.removeFilterKey(NetworkUtils.readStringSafe(buf)));
             action("clear", buf -> panel.clearFilter());
+            registerConfigActions();
         }
 
         private void action(String key, Consumer<PacketBuffer> handler) {
@@ -327,7 +356,17 @@ public final class WarpCoverGui extends CoverBaseGui<WarpCover> {
         }
 
         private CreateFailure createBlock() {
-            return PanelSnapshot.parseChannels(channels.getValue()).createBlock;
+            return channelsView().createBlock;
+        }
+
+        /** 当前频道快照；每帧多处读取，快照没变就不重新解析。 */
+        private PanelSnapshot.ChannelsView channelsView() {
+            NBTTagCompound raw = channels.getValue();
+            if (parsedView == null || raw != parsedChannels) {
+                parsedChannels = raw;
+                parsedView = PanelSnapshot.parseChannels(raw);
+            }
+            return parsedView;
         }
 
         private IWidget channelList(PanelSnapshot.ChannelsView view) {
@@ -352,8 +391,10 @@ public final class WarpCoverGui extends CoverBaseGui<WarpCover> {
         }
 
         private IWidget channelRow(PanelSnapshot.ChannelRow row, boolean connected) {
+            boolean gear = row.hasConfigPanel();
+            int width = gear ? ROW_W - 15 : ROW_W;
             ParentWidget<?> content = new ParentWidget<>();
-            content.size(ROW_W, ROW_H);
+            content.size(width, ROW_H);
             content.child(
                 new Rectangle().color(0xFF000000 | row.color)
                     .asWidget()
@@ -361,22 +402,25 @@ public final class WarpCoverGui extends CoverBaseGui<WarpCover> {
                     .size(8, 8));
             content.child(
                 new ScrollingTextWidget(IKey.str(row.name)).pos(14, 3)
-                    .size(ROW_W - 70, 8)
+                    .size(width - 70, 8)
                     .color(TEXT_COLOR));
             content.child(
                 IKey.str(row.ownerName)
                     .asWidget()
-                    .pos(ROW_W - 54, 3)
+                    .pos(width - 54, 3)
                     .size(51, 8)
                     .alignment(Alignment.CenterRight)
                     .color(OWNER_COLOR));
 
             ButtonWidget<?> button = new ButtonWidget<>();
-            button.size(ROW_W, ROW_H)
+            button.size(width, ROW_H)
                 .child(content)
                 .addTooltipLine(row.name)
-                .addTooltipLine(tr("warpcovers.gui.owner", row.ownerName))
-                .addTooltipLine(tr(connected ? "warpcovers.gui.row.disconnect" : "warpcovers.gui.row.connect"));
+                .addTooltipLine(tr("warpcovers.gui.owner", row.ownerName));
+            if (!row.note.isEmpty()) {
+                button.addTooltipLine(row.note);
+            }
+            button.addTooltipLine(tr(connected ? "warpcovers.gui.row.disconnect" : "warpcovers.gui.row.connect"));
             if (connected) {
                 button.background(GTGuiTextures.BUTTON_STANDARD_PRESSED);
             }
@@ -387,7 +431,26 @@ public final class WarpCoverGui extends CoverBaseGui<WarpCover> {
                 send("toggle", buf -> NetworkUtils.writeStringSafe(buf, row.id));
                 return true;
             });
-            return button;
+            if (!gear) {
+                return button;
+            }
+            ParentWidget<?> line = new ParentWidget<>();
+            line.size(ROW_W, ROW_H);
+            line.child(button);
+            ButtonWidget<?> open = new ButtonWidget<>();
+            open.pos(ROW_W - 14, 1)
+                .size(12, 12)
+                .overlay(GuiTextures.GEAR)
+                .addTooltipLine(tr("warpcovers.gui.config.open"));
+            open.onMousePressed(mouse -> {
+                if (mouse != 0) {
+                    return false;
+                }
+                openConfigDialog(open, row.id);
+                return true;
+            });
+            line.child(open);
+            return line;
         }
 
         private IWidget stateRow(InteractionState current) {
@@ -507,6 +570,430 @@ public final class WarpCoverGui extends CoverBaseGui<WarpCover> {
 
             ButtonWidget<?> cancel = new ButtonWidget<>();
             cancel.pos(88, 74)
+                .size(76, 14)
+                .overlay(IKey.lang("warpcovers.gui.dialog.cancel"));
+            cancel.onMousePressed(mouse -> {
+                dialog.closeWith(false);
+                return true;
+            });
+            dialog.child(cancel);
+            return dialog;
+        }
+
+        // ---- 频道配置面板（客户端界面，每个改动都是发往服务端的请求，由 ChannelAdmin 检查权限） ----
+
+        private void registerConfigActions() {
+            action(
+                "cfg_rename",
+                buf -> report(
+                    a -> a.rename(viewer, NetworkUtils.readStringSafe(buf), NetworkUtils.readStringSafe(buf))));
+            action(
+                "cfg_note",
+                buf -> report(
+                    a -> a.setNote(viewer, NetworkUtils.readStringSafe(buf), NetworkUtils.readStringSafe(buf))));
+            action("cfg_color", buf -> {
+                String id = NetworkUtils.readStringSafe(buf);
+                int color = buf.readInt();
+                report(a -> a.setColor(viewer, id, color));
+            });
+            action("cfg_dist", buf -> {
+                String id = NetworkUtils.readStringSafe(buf);
+                DistributionMode mode = DistributionMode.byKey(NetworkUtils.readStringSafe(buf));
+                report(a -> a.setDistribution(viewer, id, mode));
+            });
+            action("cfg_perm", buf -> {
+                String id = NetworkUtils.readStringSafe(buf);
+                Identity who = Identity.valueOf(NetworkUtils.readStringSafe(buf));
+                Permission permission = Permission.valueOf(NetworkUtils.readStringSafe(buf));
+                boolean allowed = buf.readBoolean();
+                report(a -> a.setPermission(viewer, id, who, permission, allowed));
+            });
+            action("cfg_public", buf -> {
+                String id = NetworkUtils.readStringSafe(buf);
+                boolean isPublic = buf.readBoolean();
+                report(a -> a.setPublic(viewer, id, isPublic));
+            });
+            action("cfg_new", buf -> {
+                String id = NetworkUtils.readStringSafe(buf);
+                Identity who = Identity.valueOf(NetworkUtils.readStringSafe(buf));
+                boolean allowed = buf.readBoolean();
+                report(a -> a.setCreateAllowed(viewer, id, who, allowed));
+            });
+            action("cfg_delete", buf -> report(a -> a.delete(viewer, NetworkUtils.readStringSafe(buf))));
+        }
+
+        private void report(Function<ChannelAdmin, PanelNotice> operation) {
+            panel.report(operation.apply(panel.admin()));
+        }
+
+        /** 发出配置请求，之后配置面板开始显示服务端的反馈。 */
+        private void sendConfig(String key, Consumer<PacketBuffer> writer) {
+            configActed = true;
+            configLocalError = "";
+            send(key, buf -> {
+                NetworkUtils.writeStringSafe(buf, configChannelId);
+                writer.accept(buf);
+            });
+        }
+
+        private PanelSnapshot.ChannelRow configRow() {
+            return channelsView().row(configChannelId);
+        }
+
+        private void openConfigDialog(IWidget anchor, String channelId) {
+            if (configDialog == null) {
+                configDialog = IPanelHandler.simple(anchor.getPanel(), (main, player) -> configPanel(), true);
+            }
+            if (configDialog.isPanelOpen()) {
+                return;
+            }
+            configChannelId = channelId;
+            configActed = false;
+            configLocalError = "";
+            configDialog.deleteCachedPanel();
+            configDialog.openPanel();
+        }
+
+        private Dialog<Boolean> configPanel() {
+            Dialog<Boolean> dialog = new Dialog<>("warpcovers_channel_config");
+            dialog.setDraggable(false);
+            dialog.setCloseOnOutOfBoundsClick(true);
+            dialog.size(CFG_W, CFG_H);
+            // 删除确认弹窗挂在配置面板上，配置面板每次打开都是新对象，要跟着重建
+            deleteDialog = null;
+            PanelSnapshot.ChannelRow row = configRow();
+            if (row == null) {
+                return dialog;
+            }
+
+            dialog.child(IKey.dynamic(() -> {
+                PanelSnapshot.ChannelRow current = configRow();
+                return current == null ? tr("warpcovers.notice.channel_missing")
+                    : tr("warpcovers.gui.config.title", current.name);
+            })
+                .asWidget()
+                .pos(8, 7)
+                .size(CFG_LEFT_W, 9)
+                .color(0xFF222222));
+
+            if (row.canConfigure) {
+                addConfigText(
+                    dialog,
+                    20,
+                    "warpcovers.gui.config.name",
+                    row.name,
+                    ChannelHub.MAX_NAME_LENGTH,
+                    "cfg_rename");
+                addConfigText(
+                    dialog,
+                    35,
+                    "warpcovers.gui.config.note",
+                    row.note,
+                    ChannelAdmin.MAX_NOTE_LENGTH,
+                    "cfg_note");
+                addColorPicker(dialog, row);
+                addDistributionButton(dialog);
+            } else {
+                dialog.child(
+                    IKey.lang("warpcovers.gui.config.no_configure")
+                        .asWidget()
+                        .alignment(Alignment.TopLeft)
+                        .pos(8, 20)
+                        .size(CFG_LEFT_W, 30)
+                        .color(OWNER_COLOR));
+            }
+            addPermissionMatrix(dialog, row);
+
+            dialog.child(
+                IKey.dynamic(this::configFeedback)
+                    .asWidget()
+                    .pos(8, 100)
+                    .size(CFG_W - 16, 9)
+                    .color(() -> configFeedbackIsError() ? ERROR_COLOR : TEXT_COLOR));
+
+            if (row.canDelete) {
+                ButtonWidget<?> delete = new ButtonWidget<>();
+                delete.pos(8, 113)
+                    .size(70, 14)
+                    .overlay(IKey.lang("warpcovers.gui.config.delete"));
+                delete.onMousePressed(mouse -> {
+                    openDeleteDialog(dialog);
+                    return true;
+                });
+                dialog.child(delete);
+            }
+            ButtonWidget<?> close = new ButtonWidget<>();
+            close.pos(CFG_W - 78, 113)
+                .size(70, 14)
+                .overlay(IKey.lang("warpcovers.gui.config.close"));
+            close.onMousePressed(mouse -> {
+                dialog.closeWith(true);
+                return true;
+            });
+            dialog.child(close);
+            return dialog;
+        }
+
+        /** 文本框：失去焦点或回车时，内容有变化才提交；服务端拒绝时内容留在框里，下方显示原因。 */
+        private void addConfigText(Dialog<Boolean> dialog, int y, String labelKey, String initial, int maxLength,
+            String actionKey) {
+            dialog.child(
+                IKey.lang(labelKey)
+                    .asWidget()
+                    .pos(8, y + 2)
+                    .size(30, 9)
+                    .color(TEXT_COLOR));
+            String[] text = { initial };
+            TextFieldWidget field = new TextFieldWidget();
+            field.value(new StringValue.Dynamic(() -> text[0], value -> {
+                if (!value.equals(text[0])) {
+                    text[0] = value;
+                    sendConfig(actionKey, buf -> NetworkUtils.writeStringSafe(buf, value));
+                }
+            }))
+                .setMaxLength(maxLength);
+            field.pos(38, y)
+                .size(CFG_LEFT_W - 30, 12);
+            dialog.child(field);
+        }
+
+        private void addColorPicker(Dialog<Boolean> dialog, PanelSnapshot.ChannelRow row) {
+            String[] hex = { ChannelColors.toHex(row.color) };
+            for (int i = 0; i < ChannelColors.count(); i++) {
+                int color = ChannelColors.dye(i);
+                ButtonWidget<?> swatch = new ButtonWidget<>();
+                swatch.pos(8 + (i % 8) * SWATCH, 50 + (i / 8) * SWATCH)
+                    .size(SWATCH - 1, SWATCH - 1)
+                    .background(new Rectangle().color(0xFF000000 | color));
+                swatch.onMousePressed(mouse -> {
+                    hex[0] = ChannelColors.toHex(color);
+                    sendConfig("cfg_color", buf -> buf.writeInt(color));
+                    return true;
+                });
+                dialog.child(swatch);
+            }
+            dialog.child(new DynamicDrawable(() -> {
+                PanelSnapshot.ChannelRow current = configRow();
+                return new Rectangle().color(0xFF000000 | (current == null ? 0 : current.color));
+            }).asWidget()
+                .pos(98, 51)
+                .size(10, 10)
+                .addTooltipLine(tr("warpcovers.gui.config.color_current")));
+            TextFieldWidget field = new TextFieldWidget();
+            field.value(new StringValue.Dynamic(() -> hex[0], value -> {
+                if (value.equals(hex[0])) {
+                    return;
+                }
+                hex[0] = value;
+                int color = ChannelColors.parseHex(value);
+                if (color < 0) {
+                    configLocalError = tr("warpcovers.notice.bad_color");
+                    return;
+                }
+                sendConfig("cfg_color", buf -> buf.writeInt(color));
+            }))
+                .setMaxLength(7);
+            field.pos(110, 50)
+                .size(46, 12)
+                .addTooltipLine(tr("warpcovers.gui.config.color_hex"));
+            dialog.child(field);
+        }
+
+        private void addDistributionButton(Dialog<Boolean> dialog) {
+            ButtonWidget<?> button = new ButtonWidget<>();
+            button.pos(8, 76)
+                .size(CFG_LEFT_W, 14)
+                .overlay(
+                    IKey.dynamic(
+                        () -> tr(
+                            "warpcovers.gui.config.distribution",
+                            tr("warpcovers.gui.config.distribution." + currentDistribution().key()))))
+                .addTooltipLine(tr("warpcovers.gui.config.distribution_tip"));
+            button.onMousePressed(mouse -> {
+                DistributionMode next = currentDistribution() == DistributionMode.ROUND_ROBIN
+                    ? DistributionMode.SEQUENTIAL
+                    : DistributionMode.ROUND_ROBIN;
+                sendConfig("cfg_dist", buf -> NetworkUtils.writeStringSafe(buf, next.key()));
+                return true;
+            });
+            dialog.child(button);
+        }
+
+        private DistributionMode currentDistribution() {
+            PanelSnapshot.ChannelRow current = configRow();
+            return current == null ? DistributionMode.ROUND_ROBIN : current.distribution;
+        }
+
+        /** 四种身份 × 五项频道权限；管理者还多一列归属者级的「新增频道」。 */
+        private void addPermissionMatrix(Dialog<Boolean> dialog, PanelSnapshot.ChannelRow row) {
+            dialog.child(
+                IKey.lang("warpcovers.gui.config.permissions")
+                    .asWidget()
+                    .pos(CFG_RIGHT_X, 7)
+                    .size(CFG_W - CFG_RIGHT_X - 8, 9)
+                    .color(0xFF222222));
+            if (!row.canManage()) {
+                dialog.child(
+                    IKey.lang("warpcovers.gui.config.no_manage")
+                        .asWidget()
+                        .alignment(Alignment.TopLeft)
+                        .pos(CFG_RIGHT_X, 20)
+                        .size(CFG_W - CFG_RIGHT_X - 8, 30)
+                        .color(OWNER_COLOR));
+                return;
+            }
+            Permission[] permissions = Permission.values();
+            for (int col = 0; col < permissions.length; col++) {
+                addMatrixHeader(dialog, col, permissions[col].name());
+            }
+            if (row.canEditCreate()) {
+                addMatrixHeader(dialog, permissions.length, "create");
+            }
+            Identity[] identities = Identity.values();
+            for (int r = 0; r < identities.length; r++) {
+                Identity who = identities[r];
+                int y = MATRIX_HEADER_Y + 11 + r * MATRIX_ROW_H;
+                dialog.child(
+                    IKey.lang("warpcovers.gui.identity." + lower(who.name()))
+                        .asWidget()
+                        .pos(CFG_RIGHT_X, y + 1)
+                        .size(MATRIX_LABEL_W, 9)
+                        .color(TEXT_COLOR));
+                for (int col = 0; col < permissions.length; col++) {
+                    Permission permission = permissions[col];
+                    dialog.child(matrixCell(col, y, () -> {
+                        PanelSnapshot.ChannelRow current = configRow();
+                        return current != null && current.permissions != null
+                            && current.permissions.allows(who, permission);
+                    }, allowed -> sendConfig("cfg_perm", buf -> {
+                        NetworkUtils.writeStringSafe(buf, who.name());
+                        NetworkUtils.writeStringSafe(buf, permission.name());
+                        buf.writeBoolean(allowed);
+                    })));
+                }
+                if (row.canEditCreate()) {
+                    dialog.child(matrixCell(permissions.length, y, () -> {
+                        PanelSnapshot.ChannelRow current = configRow();
+                        return current != null && current.createAllowed(who);
+                    }, allowed -> sendConfig("cfg_new", buf -> {
+                        NetworkUtils.writeStringSafe(buf, who.name());
+                        buf.writeBoolean(allowed);
+                    })));
+                }
+            }
+            ButtonWidget<?> preset = new ButtonWidget<>();
+            preset.pos(CFG_RIGHT_X, 82)
+                .size(CFG_W - CFG_RIGHT_X - 8, 14)
+                .overlay(IKey.dynamic(() -> tr("warpcovers.gui.config.preset", tr(presetKey()))))
+                .addTooltipLine(tr("warpcovers.gui.config.preset_tip"));
+            preset.onMousePressed(mouse -> {
+                boolean next = !isConfigPublic();
+                sendConfig("cfg_public", buf -> buf.writeBoolean(next));
+                return true;
+            });
+            dialog.child(preset);
+        }
+
+        private void addMatrixHeader(Dialog<Boolean> dialog, int col, String name) {
+            String key = "warpcovers.gui.perm." + lower(name);
+            dialog.child(
+                IKey.lang(key + ".short")
+                    .asWidget()
+                    .pos(CFG_RIGHT_X + MATRIX_LABEL_W + col * MATRIX_CELL, MATRIX_HEADER_Y)
+                    .size(MATRIX_CELL, 9)
+                    .alignment(Alignment.Center)
+                    .color(TEXT_COLOR)
+                    .addTooltipLine(tr(key)));
+        }
+
+        private IWidget matrixCell(int col, int y, BooleanSupplier value, Consumer<Boolean> onChange) {
+            ButtonWidget<?> cell = new ButtonWidget<>();
+            cell.pos(CFG_RIGHT_X + MATRIX_LABEL_W + col * MATRIX_CELL + 3, y)
+                .size(10, 10)
+                .background(
+                    new DynamicDrawable(
+                        () -> value.getAsBoolean() ? GuiTextures.CHECK_BOX_FULL : GuiTextures.CHECK_BOX_EMPTY));
+            cell.onMousePressed(mouse -> {
+                onChange.accept(!value.getAsBoolean());
+                return true;
+            });
+            return cell;
+        }
+
+        private boolean isConfigPublic() {
+            PanelSnapshot.ChannelRow current = configRow();
+            return current != null && current.permissions != null && current.permissions.isPublic();
+        }
+
+        private String presetKey() {
+            PanelSnapshot.ChannelRow current = configRow();
+            if (current == null || current.permissions == null) {
+                return "warpcovers.gui.config.preset.private";
+            }
+            if (current.permissions.isPublic()) {
+                return "warpcovers.gui.config.preset.public";
+            }
+            return current.permissions.isPrivate() ? "warpcovers.gui.config.preset.private"
+                : "warpcovers.gui.config.preset.custom";
+        }
+
+        private String configFeedback() {
+            if (!configLocalError.isEmpty()) {
+                return configLocalError;
+            }
+            if (!configActed) {
+                return "";
+            }
+            PanelSnapshot.StatusView view = statusView();
+            return view.noticeKey.isEmpty() ? "" : tr("warpcovers.notice." + view.noticeKey, view.noticeArg);
+        }
+
+        private boolean configFeedbackIsError() {
+            return !configLocalError.isEmpty() || statusView().noticeError;
+        }
+
+        private void openDeleteDialog(Dialog<Boolean> parent) {
+            if (deleteDialog == null) {
+                deleteDialog = IPanelHandler.simple(parent, (main, player) -> deletePanel(), true);
+            }
+            if (deleteDialog.isPanelOpen()) {
+                return;
+            }
+            deleteDialog.deleteCachedPanel();
+            deleteDialog.openPanel();
+        }
+
+        /** 删除的二次确认：确认和取消都和删除按钮不在同一位置，连点不会误删。 */
+        private Dialog<Boolean> deletePanel() {
+            Dialog<Boolean> dialog = new Dialog<>("warpcovers_delete_channel");
+            dialog.setDraggable(false);
+            dialog.setCloseOnOutOfBoundsClick(false);
+            dialog.size(172, 66);
+            PanelSnapshot.ChannelRow row = configRow();
+            dialog.child(
+                IKey.str(tr("warpcovers.gui.config.delete_confirm", row == null ? "" : row.name))
+                    .asWidget()
+                    .alignment(Alignment.TopLeft)
+                    .pos(8, 7)
+                    .size(156, 32)
+                    .color(0xFF222222));
+
+            ButtonWidget<?> confirm = new ButtonWidget<>();
+            confirm.pos(88, 44)
+                .size(76, 14)
+                .overlay(IKey.lang("warpcovers.gui.config.delete_yes"));
+            confirm.onMousePressed(mouse -> {
+                sendConfig("cfg_delete", buf -> {});
+                dialog.closeWith(true);
+                if (configDialog != null) {
+                    configDialog.closePanel();
+                }
+                return true;
+            });
+            dialog.child(confirm);
+
+            ButtonWidget<?> cancel = new ButtonWidget<>();
+            cancel.pos(8, 44)
                 .size(76, 14)
                 .overlay(IKey.lang("warpcovers.gui.dialog.cancel"));
             cancel.onMousePressed(mouse -> {
@@ -789,6 +1276,10 @@ public final class WarpCoverGui extends CoverBaseGui<WarpCover> {
         private boolean isItem() {
             return cover.channelType() == ChannelType.ITEM;
         }
+    }
+
+    private static String lower(String name) {
+        return name.toLowerCase(java.util.Locale.ROOT);
     }
 
     private static InteractionState parseState(String name) {

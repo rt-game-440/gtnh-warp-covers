@@ -1,6 +1,7 @@
 package com.rtgame.warpcovers.gt;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -29,8 +30,10 @@ import com.rtgame.warpcovers.core.DistributionMode;
 import com.rtgame.warpcovers.core.Endpoint;
 import com.rtgame.warpcovers.core.EndpointConfig;
 import com.rtgame.warpcovers.core.FilterList;
+import com.rtgame.warpcovers.core.Identity;
 import com.rtgame.warpcovers.core.InteractionState;
 import com.rtgame.warpcovers.core.Location;
+import com.rtgame.warpcovers.core.Permission;
 
 /** 世界存档数据与覆盖板配置的 NBT 往返。 */
 class HubNbtTest {
@@ -182,6 +185,45 @@ class HubNbtTest {
         assertEquals(ChannelColors.DEFAULT, back.color());
         assertEquals("", back.ownerId());
         assertEquals("", back.ownerName());
+    }
+
+    @Test
+    void 备注权限和新增策略存档往返且旧存档取默认() throws IOException {
+        ChannelHub hub = new ChannelHub(CONFIG);
+        Channel channel = hub.createChannel(ChannelType.FLUID, "带备注", "player:uuid-a", "Alice", 0xB3312C)
+            .channel();
+        hub.setNote(channel.id(), "基地主水网");
+        hub.setPublic(channel.id(), true);
+        hub.setPermission(channel.id(), Identity.ALLY, Permission.CONNECT, false);
+        hub.setCreateAllowed("player:uuid-a", Identity.MEMBER, false);
+
+        NBTTagCompound root = throughBytes(HubNbt.write(hub));
+        ChannelHub restored = new ChannelHub(CONFIG);
+        HubNbt.read(root, restored);
+
+        Channel back = restored.findChannel(channel.id());
+        assertEquals("基地主水网", back.note());
+        assertTrue(
+            back.permissions()
+                .isPublic());
+        assertFalse(
+            back.permissions()
+                .allows(Identity.ALLY, Permission.CONNECT));
+        assertFalse(restored.isCreateAllowed("player:uuid-a", Identity.MEMBER));
+
+        NBTTagCompound tag = root.getTagList("channels", 10)
+            .getCompoundTagAt(0);
+        tag.removeTag("note");
+        tag.removeTag("perms");
+        root.removeTag("createPolicies");
+        ChannelHub old = new ChannelHub(CONFIG);
+        HubNbt.read(root, old);
+        Channel oldChannel = old.findChannel(channel.id());
+        assertEquals("", oldChannel.note());
+        assertTrue(
+            oldChannel.permissions()
+                .isPrivate());
+        assertTrue(old.isCreateAllowed("player:uuid-a", Identity.MEMBER));
     }
 
     @Test

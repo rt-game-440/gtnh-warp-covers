@@ -10,14 +10,18 @@ import net.minecraft.nbt.NBTTagString;
 
 import com.rtgame.warpcovers.core.Channel;
 import com.rtgame.warpcovers.core.ChannelHub;
+import com.rtgame.warpcovers.core.ChannelPermissions;
 import com.rtgame.warpcovers.core.CoverPanel;
 import com.rtgame.warpcovers.core.CreateFailure;
 import com.rtgame.warpcovers.core.DisconnectReason;
+import com.rtgame.warpcovers.core.DistributionMode;
 import com.rtgame.warpcovers.core.EndpointConfig;
 import com.rtgame.warpcovers.core.EndpointStatus;
 import com.rtgame.warpcovers.core.FilterList;
+import com.rtgame.warpcovers.core.Identity;
 import com.rtgame.warpcovers.core.InteractionState;
 import com.rtgame.warpcovers.core.PanelNotice;
+import com.rtgame.warpcovers.core.Permission;
 import com.rtgame.warpcovers.core.Viewer;
 
 /**
@@ -45,6 +49,8 @@ public final class PanelSnapshot {
             tag.setInteger("c", channel.color());
             tag.setString("o", channel.ownerName());
             tag.setBoolean("m", mine.equals(channel.ownerId()));
+            tag.setString("nt", channel.note());
+            writeAccess(panel.hub(), viewer, channel, tag);
             list.appendTag(tag);
         }
         root.setTag("list", list);
@@ -59,6 +65,29 @@ public final class PanelSnapshot {
         CreateFailure blocked = panel.createBlock(viewer);
         root.setString("cb", blocked == null ? "" : blocked.key());
         return root;
+    }
+
+    /** 频道配置面板要用的内容：操作者有相应权限才下发。 */
+    private static void writeAccess(ChannelHub hub, Viewer viewer, Channel channel, NBTTagCompound tag) {
+        String player = viewer.playerId();
+        boolean configure = hub.hasPermission(player, channel, Permission.CONFIGURE);
+        boolean manage = hub.hasPermission(player, channel, Permission.MANAGE_PERMISSIONS);
+        boolean delete = hub.hasPermission(player, channel, Permission.DELETE);
+        tag.setBoolean("cfg", configure);
+        tag.setBoolean("del", delete);
+        tag.setString(
+            "dist",
+            channel.distribution()
+                .key());
+        if (manage) {
+            tag.setIntArray(
+                "perm",
+                channel.permissions()
+                    .toMasks());
+        }
+        if (hub.identityOf(player, channel) == Identity.MANAGER) {
+            tag.setInteger("new", hub.createPolicyMask(channel.ownerId()));
+        }
     }
 
     /** 设置页：过滤名单。 */
@@ -108,7 +137,13 @@ public final class PanelSnapshot {
                         tag.getString("n"),
                         tag.getInteger("c"),
                         tag.getString("o"),
-                        tag.getBoolean("m")));
+                        tag.getBoolean("m"),
+                        tag.getString("nt"),
+                        tag.getBoolean("cfg"),
+                        tag.getBoolean("del"),
+                        DistributionMode.byKey(tag.getString("dist")),
+                        tag.hasKey("perm") ? ChannelPermissions.fromMasks(tag.getIntArray("perm")) : null,
+                        tag.hasKey("new") ? tag.getInteger("new") : -1));
             }
         }
         String current = root == null ? "" : root.getString("cur");
@@ -166,13 +201,45 @@ public final class PanelSnapshot {
         public final int color;
         public final String ownerName;
         public final boolean mine;
+        public final String note;
+        public final boolean canConfigure;
+        public final boolean canDelete;
+        public final DistributionMode distribution;
+        /** 权限矩阵；操作者没有「修改权限」时为 null。 */
+        public final ChannelPermissions permissions;
+        /** 归属者级「新增频道」的身份位掩码；操作者不是管理者时为 -1。 */
+        public final int createMask;
 
-        ChannelRow(String id, String name, int color, String ownerName, boolean mine) {
+        ChannelRow(String id, String name, int color, String ownerName, boolean mine, String note, boolean canConfigure,
+            boolean canDelete, DistributionMode distribution, ChannelPermissions permissions, int createMask) {
+            this.note = note;
+            this.canConfigure = canConfigure;
+            this.canDelete = canDelete;
+            this.distribution = distribution;
+            this.permissions = permissions;
+            this.createMask = createMask;
             this.id = id;
             this.name = name;
             this.color = color;
             this.ownerName = ownerName;
             this.mine = mine;
+        }
+
+        public boolean canManage() {
+            return permissions != null;
+        }
+
+        /** 有任何一项可编辑的内容时才显示齿轮。 */
+        public boolean hasConfigPanel() {
+            return canConfigure || canDelete || canManage();
+        }
+
+        public boolean canEditCreate() {
+            return createMask >= 0;
+        }
+
+        public boolean createAllowed(Identity who) {
+            return canEditCreate() && (createMask & (1 << who.ordinal())) != 0;
         }
     }
 
@@ -189,6 +256,16 @@ public final class PanelSnapshot {
             this.rows = Collections.unmodifiableList(rows);
             this.currentId = currentId;
             this.state = state;
+        }
+
+        /** 按 ID 查找行；频道已不可见时为 null。 */
+        public ChannelRow row(String channelId) {
+            for (ChannelRow row : rows) {
+                if (row.id.equals(channelId)) {
+                    return row;
+                }
+            }
+            return null;
         }
 
         public boolean isConnected(String channelId) {

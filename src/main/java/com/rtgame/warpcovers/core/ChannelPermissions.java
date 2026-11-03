@@ -39,6 +39,11 @@ public final class ChannelPermissions {
         return masks[Identity.STRANGER.ordinal()] == STRANGER_PUBLIC;
     }
 
+    /** 陌生人没有任何权限。 */
+    public boolean isPrivate() {
+        return masks[Identity.STRANGER.ordinal()] == 0;
+    }
+
     void applyStrangerPreset(boolean isPublic) {
         masks[Identity.STRANGER.ordinal()] = isPublic ? STRANGER_PUBLIC : 0;
     }

@@ -48,6 +48,7 @@ public final class HubNbt {
                 channel.type()
                     .key());
             tag.setString("name", channel.name());
+            tag.setString("note", channel.note());
             tag.setInteger("color", channel.color());
             tag.setString("owner", channel.ownerId());
             tag.setString("ownerName", channel.ownerName());
@@ -142,8 +143,8 @@ public final class HubNbt {
                 tag.getString("owner"),
                 tag.getString("ownerName"),
                 DistributionMode.byKey(tag.getString("distribution")),
-                tag.hasKey("perms") ? ChannelPermissions.fromMasks(tag.getIntArray("perms"))
-                    : new ChannelPermissions());
+                tag.hasKey("perms") ? ChannelPermissions.fromMasks(tag.getIntArray("perms")) : new ChannelPermissions(),
+                tag.getString("note"));
         }
         NBTTagList policies = root.getTagList("createPolicies", TAG_COMPOUND);
         for (int i = 0; i < policies.tagCount(); i++) {

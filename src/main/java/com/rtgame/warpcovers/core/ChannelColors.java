@@ -26,6 +26,30 @@ public final class ChannelColors {
         return DYES[random.nextInt(DYES.length)];
     }
 
+    /** 解析 6 位十六进制 RGB（可带 #）；不合法时返回 -1。 */
+    public static int parseHex(String text) {
+        if (text == null) {
+            return -1;
+        }
+        String hex = text.trim();
+        if (hex.startsWith("#")) {
+            hex = hex.substring(1);
+        }
+        if (hex.length() != 6) {
+            return -1;
+        }
+        for (int i = 0; i < 6; i++) {
+            if (Character.digit(hex.charAt(i), 16) < 0) {
+                return -1;
+            }
+        }
+        return Integer.parseInt(hex, 16);
+    }
+
+    public static String toHex(int color) {
+        return String.format("%06X", color & 0xFFFFFF);
+    }
+
     /** 是否为 16 种预设色之一。 */
     public static boolean isDye(int color) {
         for (int dye : DYES) {

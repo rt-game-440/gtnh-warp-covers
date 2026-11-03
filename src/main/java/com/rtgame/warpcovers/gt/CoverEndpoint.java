@@ -242,6 +242,9 @@ public final class CoverEndpoint implements EndpointHost {
 
     @Override
     public void onEndpointChanged() {
+        if (boundHub != null) {
+            refreshChannelName(boundHub);
+        }
         changeListener.run();
     }
 

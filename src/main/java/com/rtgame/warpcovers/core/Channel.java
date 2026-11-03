@@ -12,6 +12,8 @@ public final class Channel {
     private String name;
     /** 显示颜色，0xRRGGBB。 */
     private int color;
+    /** 备注：任意展示文本。 */
+    private String note = "";
     /** 归属者 ID（如 {@code player:<uuid>}），旧存档里为空。 */
     private String ownerId;
     /** 归属者显示名，只作展示缓存。 */
@@ -50,6 +52,14 @@ public final class Channel {
 
     void setName(String name) {
         this.name = name;
+    }
+
+    public String note() {
+        return note;
+    }
+
+    void setNote(String note) {
+        this.note = note == null ? "" : note;
     }
 
     public int color() {

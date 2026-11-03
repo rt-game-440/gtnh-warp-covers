@@ -176,6 +176,55 @@ public final class ChannelHub {
         return true;
     }
 
+    /**
+     * 改名（权限由调用方检查）：覆盖板只记内部 ID，不用碰任何覆盖板（ADR-0002）。名字需事先去掉首尾空白。
+     *
+     * @return 名字不可用的原因；成功时为 null
+     */
+    public CreateFailure renameChannel(String channelId, String trimmedName) {
+        Channel channel = channels.get(channelId);
+        if (channel == null || channel.name()
+            .equals(trimmedName)) {
+            return null;
+        }
+        CreateFailure failure = validateName(channel.type(), channel.ownerId(), trimmedName);
+        if (failure != null) {
+            return failure;
+        }
+        channel.setName(trimmedName);
+        markDirty();
+        notifyEndpoints(channel);
+        return null;
+    }
+
+    public void setNote(String channelId, String note) {
+        Channel channel = channels.get(channelId);
+        if (channel != null && !channel.note()
+            .equals(note)) {
+            channel.setNote(note);
+            markDirty();
+        }
+    }
+
+    /** 改颜色（权限由调用方检查）：通知已加载的连接端同步外观。 */
+    public void setColor(String channelId, int color) {
+        Channel channel = channels.get(channelId);
+        if (channel != null && channel.color() != (color & 0xFFFFFF)) {
+            channel.setColor(color);
+            markDirty();
+            notifyEndpoints(channel);
+        }
+    }
+
+    private static void notifyEndpoints(Channel channel) {
+        for (Endpoint endpoint : channel.endpoints()) {
+            EndpointHost host = endpoint.host();
+            if (host != null) {
+                host.onEndpointChanged();
+            }
+        }
+    }
+
     // ---- 权限 ----
 
     /** 玩家相对于频道归属者的身份。没有归属者的频道（测试与自检直接建的）所有人都是管理者。 */
@@ -219,8 +268,13 @@ public final class ChannelHub {
     }
 
     public boolean isCreateAllowed(String ownerId, Identity who) {
+        return (createPolicyMask(ownerId) & (1 << who.ordinal())) != 0;
+    }
+
+    /** 可以新增频道的身份（{@link Identity} 的位掩码）。 */
+    public int createPolicyMask(String ownerId) {
         Integer policy = createPolicies.get(ownerId);
-        return ((policy == null ? DEFAULT_CREATE_POLICY : policy) & (1 << who.ordinal())) != 0;
+        return policy == null ? DEFAULT_CREATE_POLICY : policy;
     }
 
     /** 修改归属者级的「新增频道」（权限由调用方检查）。 */
@@ -528,14 +582,15 @@ public final class ChannelHub {
 
     public void restoreChannel(String id, ChannelType type, String name, int color, String ownerId, String ownerName,
         DistributionMode distribution) {
-        restoreChannel(id, type, name, color, ownerId, ownerName, distribution, new ChannelPermissions());
+        restoreChannel(id, type, name, color, ownerId, ownerName, distribution, new ChannelPermissions(), "");
     }
 
     public void restoreChannel(String id, ChannelType type, String name, int color, String ownerId, String ownerName,
-        DistributionMode distribution, ChannelPermissions permissions) {
+        DistributionMode distribution, ChannelPermissions permissions, String note) {
         Channel channel = new Channel(id, type, name, color, ownerId, ownerName);
         channel.setDistribution(distribution);
         channel.setPermissions(permissions);
+        channel.setNote(note);
         channels.put(id, channel);
     }
 

@@ -109,6 +109,33 @@ class PanelSnapshotTest {
     }
 
     @Test
+    void 配置面板内容按权限下发() throws IOException {
+        panel.createChannel(alice, "主网", false);
+        Channel bobs = hub.createChannel(ChannelType.FLUID, "副网", bob.personalOwnerId(), "Bob", 0x123456)
+            .channel();
+        hub.setPublic(bobs.id(), true);
+        hub.setNote(bobs.id(), "别人的备注");
+
+        PanelSnapshot.ChannelsView view = PanelSnapshot.parseChannels(roundTrip(PanelSnapshot.channels(panel, alice)));
+
+        PanelSnapshot.ChannelRow mine = view.rows.get(0);
+        assertTrue(mine.hasConfigPanel());
+        assertTrue(mine.canConfigure);
+        assertTrue(mine.canManage());
+        assertTrue(mine.canDelete);
+        assertTrue(mine.canEditCreate());
+        assertTrue(mine.createAllowed(Identity.MEMBER));
+        assertFalse(mine.createAllowed(Identity.ALLY));
+
+        PanelSnapshot.ChannelRow other = view.row(bobs.id());
+        assertEquals("别人的备注", other.note);
+        assertFalse(other.hasConfigPanel(), "公开频道的陌生人没有齿轮");
+        assertNull(other.permissions);
+        assertFalse(other.canEditCreate());
+        assertNull(view.row("没有"));
+    }
+
+    @Test
     void 交互状态随快照下发() {
         panel.createChannel(alice, "主网", true);
         panel.setState(alice, InteractionState.OUTPUT);

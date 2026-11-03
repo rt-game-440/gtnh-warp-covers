@@ -27,6 +27,7 @@ public final class CoverPanel {
     private final ChannelType type;
     private final PanelEndpoint endpoint;
     private final Random random;
+    private final ChannelAdmin admin;
     private PanelNotice notice;
 
     public CoverPanel(ChannelHub hub, ChannelType type, PanelEndpoint endpoint, Random random) {
@@ -34,6 +35,16 @@ public final class CoverPanel {
         this.type = type;
         this.endpoint = endpoint;
         this.random = random;
+        this.admin = new ChannelAdmin(hub);
+    }
+
+    /** 频道配置面板的操作；结果交给 {@link #report} 显示。 */
+    public ChannelAdmin admin() {
+        return admin;
+    }
+
+    public ChannelHub hub() {
+        return hub;
     }
 
     public ChannelType type() {
@@ -267,7 +278,8 @@ public final class CoverPanel {
         return hub.statusOf(endpoint.endpointId(), now);
     }
 
-    private PanelNotice report(PanelNotice result) {
+    /** 记下操作反馈，界面在状态栏显示。 */
+    public PanelNotice report(PanelNotice result) {
         notice = result;
         return result;
     }
