@@ -227,6 +227,46 @@ class HubNbtTest {
     }
 
     @Test
+    void 私人标签存档往返且删除的频道不恢复() throws IOException {
+        ChannelHub hub = new ChannelHub(CONFIG);
+        Channel channel = hub.createChannel(ChannelType.FLUID, "主网");
+        Channel gone = hub.createChannel(ChannelType.FLUID, "已删");
+        hub.addTag("uuid-a", channel.id(), "基地");
+        hub.addTag("uuid-a", channel.id(), "矿场");
+        hub.addTag("uuid-b", channel.id(), "B的");
+        hub.addTag("uuid-a", gone.id(), "残留");
+        hub.recentTransfers();
+
+        NBTTagCompound root = throughBytes(HubNbt.write(hub));
+        // 模拟频道条目已不在存档里、标签还在
+        NBTTagList channels = root.getTagList("channels", 10);
+        for (int i = channels.tagCount() - 1; i >= 0; i--) {
+            if (gone.id()
+                .equals(
+                    channels.getCompoundTagAt(i)
+                        .getString("id"))) {
+                channels.removeTag(i);
+            }
+        }
+        ChannelHub restored = new ChannelHub(CONFIG);
+        HubNbt.read(root, restored);
+
+        assertEquals(
+            java.util.Arrays.asList("基地", "矿场"),
+            new java.util.ArrayList<String>(
+                restored.tags()
+                    .of("uuid-a", channel.id())));
+        assertEquals(
+            java.util.Collections.singleton("B的"),
+            restored.tags()
+                .of("uuid-b", channel.id()));
+        assertTrue(
+            restored.tags()
+                .of("uuid-a", gone.id())
+                .isEmpty());
+    }
+
+    @Test
     void 存档带版本号() {
         NBTTagCompound root = HubNbt.write(new ChannelHub(CONFIG));
         assertEquals(HubNbt.VERSION, root.getInteger("version"));

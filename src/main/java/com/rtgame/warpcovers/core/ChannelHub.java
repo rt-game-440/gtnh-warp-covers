@@ -39,6 +39,8 @@ public final class ChannelHub {
     private final Map<String, Long> roundRobinPointers = new HashMap<String, Long>();
     private Runnable dirtyListener = NO_LISTENER;
     private final IdentityPort identity;
+    private final RecentTransfers recentTransfers = new RecentTransfers();
+    private final PrivateTags tags = new PrivateTags();
     /** 各归属者哪些身份可以新增频道（{@link Identity} 的位掩码）；没有记录时取默认值。 */
     private final Map<String, Integer> createPolicies = new HashMap<String, Integer>();
 
@@ -56,6 +58,31 @@ public final class ChannelHub {
 
     public IdentityPort identity() {
         return identity;
+    }
+
+    /** 各频道最近传输过的物体种类（只在内存里）。 */
+    public RecentTransfers recentTransfers() {
+        return recentTransfers;
+    }
+
+    /** 玩家的私人标签。 */
+    public PrivateTags tags() {
+        return tags;
+    }
+
+    /** @return 没有加入的原因（语言键后缀）；成功时为 null */
+    public String addTag(String playerId, String channelId, String tag) {
+        String failure = tags.add(playerId, channelId, tag);
+        if (failure == null) {
+            markDirty();
+        }
+        return failure;
+    }
+
+    public void removeTag(String playerId, String channelId, String tag) {
+        if (tags.remove(playerId, channelId, tag)) {
+            markDirty();
+        }
     }
 
     public void setDirtyListener(Runnable listener) {
@@ -143,6 +170,8 @@ public final class ChannelHub {
         if (channel == null) {
             return;
         }
+        recentTransfers.forget(channelId);
+        tags.forgetChannel(channelId);
         Iterator<String> pointers = roundRobinPointers.keySet()
             .iterator();
         while (pointers.hasNext()) {
@@ -683,6 +712,9 @@ public final class ChannelHub {
             transferred += moved.transferred();
             lost += moved.lost();
             quota -= moved.transferred();
+            if (moved.transferred() > 0) {
+                recentTransfers.record(channel.id(), offered.key());
+            }
         }
         delivery.advancePointers();
         EndpointStatus status;

@@ -1,5 +1,8 @@
 package com.rtgame.warpcovers.gt;
 
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.Random;
 import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
@@ -53,6 +56,7 @@ import com.cleanroommc.modularui.widgets.textfield.TextFieldWidget;
 import com.rtgame.warpcovers.WarpCovers;
 import com.rtgame.warpcovers.core.ChannelAdmin;
 import com.rtgame.warpcovers.core.ChannelColors;
+import com.rtgame.warpcovers.core.ChannelGroup;
 import com.rtgame.warpcovers.core.ChannelHub;
 import com.rtgame.warpcovers.core.ChannelType;
 import com.rtgame.warpcovers.core.CoverPanel;
@@ -64,6 +68,7 @@ import com.rtgame.warpcovers.core.NumberInput;
 import com.rtgame.warpcovers.core.ObjectKeys;
 import com.rtgame.warpcovers.core.PanelNotice;
 import com.rtgame.warpcovers.core.Permission;
+import com.rtgame.warpcovers.core.PrivateTags;
 import com.rtgame.warpcovers.core.Viewer;
 
 import gregtech.api.modularui2.CoverGuiData;
@@ -105,6 +110,12 @@ public final class WarpCoverGui extends CoverBaseGui<WarpCover> {
     private static final int MATRIX_HEADER_Y = 20;
     private static final int MATRIX_ROW_H = 12;
     private static final int SWATCH = 11;
+    /** 频道页：顶部一行新增按钮、搜索框、标签筛选；列表项两行。 */
+    private static final int CREATE_W = 50;
+    private static final int TAG_FILTER_W = 46;
+    private static final int CHANNEL_ROW_H = 20;
+    private static final int RECENT_ICONS = 3;
+    private static final int RECENT_ICON = 10;
 
     private static final InteractionState[] STATES = { InteractionState.INPUT, InteractionState.OUTPUT,
         InteractionState.EMPTY };
@@ -151,6 +162,7 @@ public final class WarpCoverGui extends CoverBaseGui<WarpCover> {
         private final CoverPanel panel;
         private final Viewer viewer;
         private final NbtValue channels;
+        private final NbtValue recentValue;
         private final NbtValue filter;
         private final NbtValue status;
         private final LongSyncValue priority;
@@ -161,6 +173,9 @@ public final class WarpCoverGui extends CoverBaseGui<WarpCover> {
         private IPanelHandler createDialog;
         private IPanelHandler configDialog;
         private IPanelHandler deleteDialog;
+        private IPanelHandler tagDialog;
+        /** 物体图标缓存：图标每帧读取。 */
+        private final Map<String, IDrawable> objectIcons = new HashMap<>();
         /** 配置面板正在编辑的频道。 */
         private String configChannelId = "";
         /** 配置面板打开后是否操作过：操作过才显示服务端的反馈，避免显示打开前的旧提示。 */
@@ -184,6 +199,8 @@ public final class WarpCoverGui extends CoverBaseGui<WarpCover> {
                 panel = new CoverPanel(WarpServices.hub(), cover.channelType(), cover, new Random());
             }
             channels = new NbtValue(() -> client ? new NBTTagCompound() : PanelSnapshot.channels(panel, viewer));
+            recentValue = new NbtValue(() -> client ? new NBTTagCompound() : PanelSnapshot.recents(panel, viewer));
+            sync.syncValue("warpcovers_recents", recentValue);
             filter = new NbtValue(() -> client ? new NBTTagCompound() : PanelSnapshot.filter(cover.config()));
             status = new NbtValue(
                 () -> client ? new NBTTagCompound()
@@ -246,6 +263,14 @@ public final class WarpCoverGui extends CoverBaseGui<WarpCover> {
             action("remove", buf -> panel.removeFilterKey(NetworkUtils.readStringSafe(buf)));
             action("clear", buf -> panel.clearFilter());
             registerConfigActions();
+            action("search", buf -> panel.setSearch(NetworkUtils.readStringSafe(buf)));
+            action("tagfilter", buf -> panel.setTagFilter(NetworkUtils.readStringSafe(buf)));
+            action(
+                "tag_add",
+                buf -> panel.addTag(viewer, NetworkUtils.readStringSafe(buf), NetworkUtils.readStringSafe(buf)));
+            action(
+                "tag_remove",
+                buf -> panel.removeTag(viewer, NetworkUtils.readStringSafe(buf), NetworkUtils.readStringSafe(buf)));
         }
 
         private void action(String key, Consumer<PacketBuffer> handler) {
@@ -323,7 +348,7 @@ public final class WarpCoverGui extends CoverBaseGui<WarpCover> {
 
             ButtonWidget<?> create = new ButtonWidget<>();
             create.pos(0, 0)
-                .size(70, ROW_H)
+                .size(CREATE_W, ROW_H)
                 .background(
                     new DynamicDrawable(
                         () -> createBlock() != null ? GTGuiTextures.BUTTON_STANDARD_DISABLED
@@ -344,6 +369,7 @@ public final class WarpCoverGui extends CoverBaseGui<WarpCover> {
                 return true;
             });
             page.child(create);
+            addSearchBar(page);
 
             DynamicLinkedSyncHandler<NbtValue> dynamic = new DynamicLinkedSyncHandler<>(channels)
                 .widgetProvider((manager, value) -> channelList(PanelSnapshot.parseChannels(value.getValue())));
@@ -372,59 +398,96 @@ public final class WarpCoverGui extends CoverBaseGui<WarpCover> {
         private IWidget channelList(PanelSnapshot.ChannelsView view) {
             ListWidget<IWidget, ?> list = new ListWidget<>();
             list.size(PAGE_W, PAGE_H - ROW_H - 3);
-            if (view.rows.isEmpty()) {
-                list.child(
-                    IKey.lang("warpcovers.gui.no_channels")
-                        .asWidget()
-                        .size(ROW_W, ROW_H)
-                        .color(OWNER_COLOR));
-                return list;
-            }
+            boolean any = false;
+            ChannelGroup lastGroup = null;
             for (PanelSnapshot.ChannelRow row : view.rows) {
+                if (!row.shown) {
+                    continue;
+                }
+                any = true;
                 boolean connected = view.isConnected(row.id);
+                if (!connected && row.group != lastGroup) {
+                    lastGroup = row.group;
+                    list.child(
+                        IKey.lang("warpcovers.gui.group." + row.group.key())
+                            .asWidget()
+                            .size(ROW_W, 10)
+                            .color(OWNER_COLOR));
+                }
                 list.child(channelRow(row, connected));
                 if (connected) {
                     list.child(stateRow(view.state));
                 }
             }
+            if (!any) {
+                list.child(
+                    IKey.lang(view.rows.isEmpty() ? "warpcovers.gui.no_channels" : "warpcovers.gui.no_match")
+                        .asWidget()
+                        .size(ROW_W, ROW_H)
+                        .color(OWNER_COLOR));
+            }
             return list;
         }
 
+        /** 第一行：颜色、频道名、最近传输的图标；第二行：归属者、连接端数量、私人标签。 */
         private IWidget channelRow(PanelSnapshot.ChannelRow row, boolean connected) {
             boolean gear = row.hasConfigPanel();
             int width = gear ? ROW_W - 15 : ROW_W;
+            boolean showRecents = cover.channelType()
+                .hasFilter();
+            int iconsW = showRecents ? RECENT_ICONS * RECENT_ICON : 0;
             ParentWidget<?> content = new ParentWidget<>();
-            content.size(width, ROW_H);
+            content.size(width, CHANNEL_ROW_H);
             content.child(
                 new Rectangle().color(0xFF000000 | row.color)
                     .asWidget()
-                    .pos(3, 3)
+                    .pos(3, 2)
                     .size(8, 8));
             content.child(
-                new ScrollingTextWidget(IKey.str(row.name)).pos(14, 3)
-                    .size(width - 70, 8)
+                new ScrollingTextWidget(IKey.str(row.name)).pos(14, 2)
+                    .size(width - 16 - iconsW, 8)
                     .color(TEXT_COLOR));
+            if (showRecents) {
+                for (int i = 0; i < RECENT_ICONS; i++) {
+                    int index = i;
+                    content.child(
+                        new DynamicDrawable(() -> recentIcon(row.id, index)).asWidget()
+                            .pos(width - iconsW + i * RECENT_ICON, 1)
+                            .size(RECENT_ICON - 1, RECENT_ICON - 1));
+                }
+            }
             content.child(
-                IKey.str(row.ownerName)
-                    .asWidget()
-                    .pos(width - 54, 3)
-                    .size(51, 8)
-                    .alignment(Alignment.CenterRight)
+                new ScrollingTextWidget(IKey.str(rowDetail(row))).pos(14, 11)
+                    .size(width - 16, 8)
                     .color(OWNER_COLOR));
 
             ButtonWidget<?> button = new ButtonWidget<>();
-            button.size(width, ROW_H)
+            button.size(width, CHANNEL_ROW_H)
                 .child(content)
-                .addTooltipLine(row.name)
-                .addTooltipLine(tr("warpcovers.gui.owner", row.ownerName));
-            if (!row.note.isEmpty()) {
-                button.addTooltipLine(row.note);
-            }
-            button.addTooltipLine(tr(connected ? "warpcovers.gui.row.disconnect" : "warpcovers.gui.row.connect"));
+                .tooltipDynamic(tooltip -> {
+                    tooltip.addLine(row.name);
+                    tooltip.addLine(tr("warpcovers.gui.owner", row.ownerName));
+                    if (!row.note.isEmpty()) {
+                        tooltip.addLine(row.note);
+                    }
+                    tooltip.addLine(tr("warpcovers.gui.row.counts_tip", row.inputs, row.outputs));
+                    if (showRecents) {
+                        for (String key : recents(row.id)) {
+                            tooltip.addLine(tr("warpcovers.gui.row.recent", objectLabel(key)));
+                        }
+                    }
+                    tooltip.addLine(tr(connected ? "warpcovers.gui.row.disconnect" : "warpcovers.gui.row.connect"));
+                    tooltip.addLine(tr("warpcovers.gui.row.tags"));
+                })
+                .tooltipAutoUpdate(true);
             if (connected) {
                 button.background(GTGuiTextures.BUTTON_STANDARD_PRESSED);
             }
             button.onMousePressed(mouse -> {
+                if (mouse == 1) {
+                    openTagDialog(button, row.id);
+                    return true;
+                }
                 if (mouse != 0) {
                     return false;
                 }
@@ -435,10 +498,10 @@ public final class WarpCoverGui extends CoverBaseGui<WarpCover> {
                 return button;
             }
             ParentWidget<?> line = new ParentWidget<>();
-            line.size(ROW_W, ROW_H);
+            line.size(ROW_W, CHANNEL_ROW_H);
             line.child(button);
             ButtonWidget<?> open = new ButtonWidget<>();
-            open.pos(ROW_W - 14, 1)
+            open.pos(ROW_W - 14, 4)
                 .size(12, 12)
                 .overlay(GuiTextures.GEAR)
                 .addTooltipLine(tr("warpcovers.gui.config.open"));
@@ -451,6 +514,141 @@ public final class WarpCoverGui extends CoverBaseGui<WarpCover> {
             });
             line.child(open);
             return line;
+        }
+
+        private String rowDetail(PanelSnapshot.ChannelRow row) {
+            StringBuilder text = new StringBuilder(row.ownerName);
+            text.append("  ")
+                .append(tr("warpcovers.gui.row.counts", row.inputs, row.outputs));
+            for (String tag : row.tags) {
+                text.append("  #")
+                    .append(tag);
+            }
+            return text.toString();
+        }
+
+        private List<String> recents(String channelId) {
+            return PanelSnapshot.parseRecents(recentValue.getValue(), channelId);
+        }
+
+        private IDrawable recentIcon(String channelId, int index) {
+            List<String> keys = recents(channelId);
+            if (index >= keys.size()) {
+                return IDrawable.EMPTY;
+            }
+            return objectIcons.computeIfAbsent(keys.get(index), this::objectIcon);
+        }
+
+        // ---- 搜索与标签筛选 ----
+
+        private void addSearchBar(ParentWidget<?> page) {
+            String[] text = { "" };
+            TextFieldWidget field = new TextFieldWidget();
+            field.value(new StringValue.Dynamic(() -> text[0], value -> {
+                if (!value.equals(text[0])) {
+                    text[0] = value;
+                    send("search", buf -> NetworkUtils.writeStringSafe(buf, value));
+                }
+            }))
+                .hintText(tr("warpcovers.gui.search"));
+            field.pos(CREATE_W + 2, 1)
+                .size(PAGE_W - CREATE_W - TAG_FILTER_W - 4, 12)
+                .addTooltipLine(tr("warpcovers.gui.search_tip"));
+            page.child(field);
+
+            ButtonWidget<?> tags = new ButtonWidget<>();
+            tags.pos(PAGE_W - TAG_FILTER_W, 0)
+                .size(TAG_FILTER_W, ROW_H)
+                .overlay(IKey.dynamic(() -> {
+                    String current = channelsView().tagFilter;
+                    return current.isEmpty() ? tr("warpcovers.gui.tag.all") : "#" + current;
+                }))
+                .addTooltipLine(tr("warpcovers.gui.tag.filter_tip"));
+            tags.onMousePressed(mouse -> {
+                String next = mouse == 1 ? "" : channelsView().nextTagFilter();
+                send("tagfilter", buf -> NetworkUtils.writeStringSafe(buf, next));
+                return true;
+            });
+            page.child(tags);
+        }
+
+        // ---- 私人标签弹窗 ----
+
+        private void openTagDialog(IWidget anchor, String channelId) {
+            if (tagDialog == null) {
+                tagDialog = IPanelHandler.simple(anchor.getPanel(), (main, player) -> tagPanel(), true);
+            }
+            if (tagDialog.isPanelOpen()) {
+                return;
+            }
+            configChannelId = channelId;
+            configActed = false;
+            configLocalError = "";
+            tagDialog.deleteCachedPanel();
+            tagDialog.openPanel();
+        }
+
+        private Dialog<Boolean> tagPanel() {
+            Dialog<Boolean> dialog = new Dialog<>("warpcovers_channel_tags");
+            dialog.setDraggable(false);
+            dialog.setCloseOnOutOfBoundsClick(true);
+            dialog.size(172, 112);
+            dialog.child(IKey.dynamic(() -> {
+                PanelSnapshot.ChannelRow row = configRow();
+                return tr("warpcovers.gui.tag.title", row == null ? "" : row.name);
+            })
+                .asWidget()
+                .pos(8, 7)
+                .size(156, 9)
+                .color(0xFF222222));
+
+            StringValue name = new StringValue("");
+            TextFieldWidget field = new TextFieldWidget();
+            field.value(name)
+                .setMaxLength(PrivateTags.MAX_TAG_LENGTH)
+                .setFocusOnGuiOpen(true);
+            field.pos(8, 19)
+                .size(116, 12);
+            dialog.child(field);
+            ButtonWidget<?> add = new ButtonWidget<>();
+            add.pos(126, 18)
+                .size(38, 14)
+                .overlay(IKey.lang("warpcovers.gui.tag.add"));
+            add.onMousePressed(mouse -> {
+                String tag = name.getStringValue();
+                sendConfig("tag_add", buf -> NetworkUtils.writeStringSafe(buf, tag));
+                name.setStringValue("");
+                return true;
+            });
+            dialog.child(add);
+
+            for (int i = 0; i < PrivateTags.MAX_TAGS_PER_CHANNEL; i++) {
+                int index = i;
+                ButtonWidget<?> tagButton = new ButtonWidget<>();
+                tagButton.pos(8 + (i % 2) * 79, 35 + (i / 2) * 13)
+                    .size(77, 12)
+                    .overlay(IKey.dynamic(() -> "#" + tagAt(index)))
+                    .addTooltipLine(tr("warpcovers.gui.tag.remove"))
+                    .setEnabledIf(w -> !tagAt(index).isEmpty());
+                tagButton.onMousePressed(mouse -> {
+                    String tag = tagAt(index);
+                    sendConfig("tag_remove", buf -> NetworkUtils.writeStringSafe(buf, tag));
+                    return true;
+                });
+                dialog.child(tagButton);
+            }
+            dialog.child(
+                IKey.dynamic(this::configFeedback)
+                    .asWidget()
+                    .pos(8, 89)
+                    .size(156, 9)
+                    .color(() -> configFeedbackIsError() ? ERROR_COLOR : TEXT_COLOR));
+            return dialog;
+        }
+
+        private String tagAt(int index) {
+            PanelSnapshot.ChannelRow row = configRow();
+            return row == null || index >= row.tags.size() ? "" : row.tags.get(index);
         }
 
         private IWidget stateRow(InteractionState current) {
@@ -1178,22 +1376,27 @@ public final class WarpCoverGui extends CoverBaseGui<WarpCover> {
             return list;
         }
 
-        private IWidget filterRow(String key) {
-            IDrawable icon;
-            String label;
+        private IDrawable objectIcon(String key) {
+            if (isItem()) {
+                return new ItemDrawable(ItemKeys.prototype(key));
+            }
+            Fluid fluid = FluidRegistry.getFluid(key);
+            return new FluidDrawable(fluid == null ? null : new FluidStack(fluid, 1000));
+        }
+
+        private String objectLabel(String key) {
             if (isItem()) {
                 ItemStack stack = ItemKeys.prototype(key);
-                icon = new ItemDrawable(stack);
-                label = stack == null ? key : stack.getDisplayName();
-                if (ObjectKeys.hasNbt(key)) {
-                    label = tr("warpcovers.gui.filter.with_nbt", label);
-                }
-            } else {
-                Fluid fluid = FluidRegistry.getFluid(key);
-                FluidStack stack = fluid == null ? null : new FluidStack(fluid, 1000);
-                icon = new FluidDrawable(stack);
-                label = stack == null ? key : stack.getLocalizedName();
+                String label = stack == null ? key : stack.getDisplayName();
+                return ObjectKeys.hasNbt(key) ? tr("warpcovers.gui.filter.with_nbt", label) : label;
             }
+            Fluid fluid = FluidRegistry.getFluid(key);
+            return fluid == null ? key : new FluidStack(fluid, 1000).getLocalizedName();
+        }
+
+        private IWidget filterRow(String key) {
+            IDrawable icon = objectIcon(key);
+            String label = objectLabel(key);
 
             ParentWidget<?> row = new ParentWidget<>();
             row.size(ROW_W, ROW_H);

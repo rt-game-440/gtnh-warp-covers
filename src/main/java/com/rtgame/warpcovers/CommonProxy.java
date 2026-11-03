@@ -13,6 +13,7 @@ import com.rtgame.warpcovers.gt.ModItems;
 import com.rtgame.warpcovers.gt.WarpEvents;
 import com.rtgame.warpcovers.gt.WarpServices;
 import com.rtgame.warpcovers.selfcheck.ChannelConfigScenario;
+import com.rtgame.warpcovers.selfcheck.ChannelListingScenario;
 import com.rtgame.warpcovers.selfcheck.DevEnvironment;
 import com.rtgame.warpcovers.selfcheck.DistributionScenario;
 import com.rtgame.warpcovers.selfcheck.EnergyChannelScenario;
@@ -68,7 +69,8 @@ public class CommonProxy {
             new EnergyChannelScenario(),
             new DistributionScenario(),
             new OwnershipScenario(),
-            new ChannelConfigScenario());
+            new ChannelConfigScenario(),
+            new ChannelListingScenario());
         SelfCheckRunner runner = new SelfCheckRunner(
             new File(gameDir, "warpcovers-selfcheck-state.txt").toPath(),
             new SelfCheckLog(logDir, Clock.systemDefaultZone()),

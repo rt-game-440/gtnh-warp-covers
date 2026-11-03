@@ -5,6 +5,7 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Random;
+import java.util.TreeSet;
 
 /**
  * 覆盖板界面的服务端逻辑：列出频道、新增频道、连接/断开、切换交互状态、编辑过滤名单。
@@ -29,6 +30,8 @@ public final class CoverPanel {
     private final Random random;
     private final ChannelAdmin admin;
     private PanelNotice notice;
+    private String search = "";
+    private String tagFilter = "";
 
     public CoverPanel(ChannelHub hub, ChannelType type, PanelEndpoint endpoint, Random random) {
         this.hub = hub;
@@ -72,6 +75,78 @@ public final class CoverPanel {
         }
         Collections.sort(result, BY_NAME);
         return result;
+    }
+
+    /** 频道列表：已连接的置顶，其余按分组（自己或本队伍、盟友、公开）、再按名称排序。 */
+    public List<ChannelEntry> listing(Viewer viewer) {
+        Channel current = connectedChannel();
+        List<ChannelEntry> result = new ArrayList<ChannelEntry>();
+        for (Channel channel : visibleChannels(viewer)) {
+            result.add(
+                new ChannelEntry(
+                    channel,
+                    ChannelGroup.of(hub.identityOf(viewer.playerId(), channel)),
+                    channel == current,
+                    hub.tags()
+                        .of(viewer.playerId(), channel.id())));
+        }
+        // visibleChannels 已按名称排好，这里是稳定排序
+        Collections.sort(result, new Comparator<ChannelEntry>() {
+
+            @Override
+            public int compare(ChannelEntry a, ChannelEntry b) {
+                if (a.connected != b.connected) {
+                    return a.connected ? -1 : 1;
+                }
+                return a.group.compareTo(b.group);
+            }
+        });
+        return result;
+    }
+
+    /** 这一项是否符合当前的搜索词和标签筛选。 */
+    public boolean isShown(Viewer viewer, ChannelEntry entry) {
+        return entry.matches(search, tagFilter(viewer));
+    }
+
+    public void setSearch(String text) {
+        search = text == null ? "" : text.trim();
+    }
+
+    public void setTagFilter(String tag) {
+        tagFilter = tag == null ? "" : tag;
+    }
+
+    /** 当前生效的标签筛选；选中的标签已不存在时为空串（不再筛选）。 */
+    public String tagFilter(Viewer viewer) {
+        return availableTags(viewer).contains(tagFilter) ? tagFilter : "";
+    }
+
+    /** 该玩家在可见频道上用过的全部标签，按字典序。 */
+    public List<String> availableTags(Viewer viewer) {
+        TreeSet<String> all = new TreeSet<String>();
+        for (Channel channel : visibleChannels(viewer)) {
+            all.addAll(
+                hub.tags()
+                    .of(viewer.playerId(), channel.id()));
+        }
+        return new ArrayList<String>(all);
+    }
+
+    /** 给可见频道打私人标签：不需要其他权限。 */
+    public PanelNotice addTag(Viewer viewer, String channelId, String rawTag) {
+        Channel channel = hub.findChannel(channelId);
+        if (channel == null || !hub.hasPermission(viewer.playerId(), channel, Permission.VIEW)) {
+            return report(PanelNotice.error("channel_missing", ""));
+        }
+        String tag = rawTag == null ? "" : rawTag.trim();
+        String failure = hub.addTag(viewer.playerId(), channelId, tag);
+        return report(failure != null ? PanelNotice.error(failure, tag) : PanelNotice.info("tag_added", tag));
+    }
+
+    public PanelNotice removeTag(Viewer viewer, String channelId, String tag) {
+        hub.removeTag(viewer.playerId(), channelId, tag);
+        return report(PanelNotice.info("tag_removed", tag));
     }
 
     /** 新频道归到谁名下。 */

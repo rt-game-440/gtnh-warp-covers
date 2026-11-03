@@ -9,6 +9,8 @@ import net.minecraft.nbt.NBTTagList;
 import net.minecraft.nbt.NBTTagString;
 
 import com.rtgame.warpcovers.core.Channel;
+import com.rtgame.warpcovers.core.ChannelEntry;
+import com.rtgame.warpcovers.core.ChannelGroup;
 import com.rtgame.warpcovers.core.ChannelHub;
 import com.rtgame.warpcovers.core.ChannelPermissions;
 import com.rtgame.warpcovers.core.CoverPanel;
@@ -42,9 +44,15 @@ public final class PanelSnapshot {
         NBTTagCompound root = new NBTTagCompound();
         String mine = panel.ownerFor(viewer);
         NBTTagList list = new NBTTagList();
-        for (Channel channel : panel.visibleChannels(viewer)) {
+        for (ChannelEntry entry : panel.listing(viewer)) {
+            Channel channel = entry.channel;
             NBTTagCompound tag = new NBTTagCompound();
             tag.setString("id", channel.id());
+            tag.setString("g", entry.group.name());
+            tag.setBoolean("hid", !panel.isShown(viewer, entry));
+            tag.setInteger("in", entry.inputs);
+            tag.setInteger("out", entry.outputs);
+            tag.setTag("tags", stringList(entry.tags));
             tag.setString("n", channel.name());
             tag.setInteger("c", channel.color());
             tag.setString("o", channel.ownerName());
@@ -64,7 +72,49 @@ public final class PanelSnapshot {
                 .name());
         CreateFailure blocked = panel.createBlock(viewer);
         root.setString("cb", blocked == null ? "" : blocked.key());
+        root.setTag("allTags", stringList(panel.availableTags(viewer)));
+        root.setString("tf", panel.tagFilter(viewer));
         return root;
+    }
+
+    /**
+     * 各频道最近传输过的种类，单独同步：它随传输频繁变化，放进频道快照会让列表不停重建、滚动位置丢失。
+     */
+    public static NBTTagCompound recents(CoverPanel panel, Viewer viewer) {
+        NBTTagCompound root = new NBTTagCompound();
+        for (Channel channel : panel.visibleChannels(viewer)) {
+            List<String> keys = panel.hub()
+                .recentTransfers()
+                .of(channel.id());
+            if (!keys.isEmpty()) {
+                root.setTag(channel.id(), stringList(keys));
+            }
+        }
+        return root;
+    }
+
+    private static NBTTagList stringList(Iterable<String> values) {
+        NBTTagList list = new NBTTagList();
+        for (String value : values) {
+            list.appendTag(new NBTTagString(value));
+        }
+        return list;
+    }
+
+    private static List<String> readStrings(NBTTagCompound root, String key) {
+        List<String> result = new ArrayList<String>();
+        if (root != null) {
+            NBTTagList list = root.getTagList(key, TAG_STRING);
+            for (int i = 0; i < list.tagCount(); i++) {
+                result.add(list.getStringTagAt(i));
+            }
+        }
+        return result;
+    }
+
+    /** 某频道最近传输过的种类，最近的在前。 */
+    public static List<String> parseRecents(NBTTagCompound root, String channelId) {
+        return readStrings(root, channelId);
     }
 
     /** 频道配置面板要用的内容：操作者有相应权限才下发。 */
@@ -143,7 +193,12 @@ public final class PanelSnapshot {
                         tag.getBoolean("del"),
                         DistributionMode.byKey(tag.getString("dist")),
                         tag.hasKey("perm") ? ChannelPermissions.fromMasks(tag.getIntArray("perm")) : null,
-                        tag.hasKey("new") ? tag.getInteger("new") : -1));
+                        tag.hasKey("new") ? tag.getInteger("new") : -1,
+                        readGroup(tag.getString("g")),
+                        !tag.getBoolean("hid"),
+                        tag.getInteger("in"),
+                        tag.getInteger("out"),
+                        readStrings(tag, "tags")));
             }
         }
         String current = root == null ? "" : root.getString("cur");
@@ -151,7 +206,9 @@ public final class PanelSnapshot {
             rows,
             current,
             root == null ? InteractionState.EMPTY : readState(root.getString("st")),
-            root == null ? null : CreateFailure.byKey(root.getString("cb")));
+            root == null ? null : CreateFailure.byKey(root.getString("cb")),
+            readStrings(root, "allTags"),
+            root == null ? "" : root.getString("tf"));
     }
 
     public static FilterView parseFilter(NBTTagCompound root) {
@@ -184,6 +241,14 @@ public final class PanelSnapshot {
             root.getBoolean("err"));
     }
 
+    private static ChannelGroup readGroup(String name) {
+        try {
+            return ChannelGroup.valueOf(name);
+        } catch (IllegalArgumentException e) {
+            return ChannelGroup.PUBLIC;
+        }
+    }
+
     private static InteractionState readState(String name) {
         try {
             return InteractionState.valueOf(name);
@@ -209,9 +274,22 @@ public final class PanelSnapshot {
         public final ChannelPermissions permissions;
         /** 归属者级「新增频道」的身份位掩码；操作者不是管理者时为 -1。 */
         public final int createMask;
+        public final ChannelGroup group;
+        /** 是否符合当前的搜索和标签筛选。不符合的行也下发，配置面板和重名预检要用。 */
+        public final boolean shown;
+        public final int inputs;
+        public final int outputs;
+        /** 查看者自己的私人标签。 */
+        public final List<String> tags;
 
         ChannelRow(String id, String name, int color, String ownerName, boolean mine, String note, boolean canConfigure,
-            boolean canDelete, DistributionMode distribution, ChannelPermissions permissions, int createMask) {
+            boolean canDelete, DistributionMode distribution, ChannelPermissions permissions, int createMask,
+            ChannelGroup group, boolean shown, int inputs, int outputs, List<String> tags) {
+            this.group = group;
+            this.shown = shown;
+            this.inputs = inputs;
+            this.outputs = outputs;
+            this.tags = Collections.unmodifiableList(tags);
             this.note = note;
             this.canConfigure = canConfigure;
             this.canDelete = canDelete;
@@ -250,12 +328,25 @@ public final class PanelSnapshot {
         public final InteractionState state;
         /** 当前不能新增频道的原因（没有权限、达到上限）；能新增时为 null。 */
         public final CreateFailure createBlock;
+        /** 查看者用过的全部标签，按字典序。 */
+        public final List<String> allTags;
+        /** 当前的标签筛选；空串表示不筛选。 */
+        public final String tagFilter;
 
-        ChannelsView(List<ChannelRow> rows, String currentId, InteractionState state, CreateFailure createBlock) {
+        ChannelsView(List<ChannelRow> rows, String currentId, InteractionState state, CreateFailure createBlock,
+            List<String> allTags, String tagFilter) {
             this.createBlock = createBlock;
+            this.allTags = Collections.unmodifiableList(allTags);
+            this.tagFilter = tagFilter;
             this.rows = Collections.unmodifiableList(rows);
             this.currentId = currentId;
             this.state = state;
+        }
+
+        /** 标签筛选的下一个选项：全部 → 第一个标签 → … → 最后一个标签 → 全部。 */
+        public String nextTagFilter() {
+            int index = allTags.indexOf(tagFilter);
+            return index + 1 < allTags.size() ? allTags.get(index + 1) : "";
         }
 
         /** 按 ID 查找行；频道已不可见时为 null。 */

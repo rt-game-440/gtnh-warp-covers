@@ -20,6 +20,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import com.rtgame.warpcovers.core.Channel;
+import com.rtgame.warpcovers.core.ChannelGroup;
 import com.rtgame.warpcovers.core.ChannelHub;
 import com.rtgame.warpcovers.core.ChannelType;
 import com.rtgame.warpcovers.core.ConfigPort;
@@ -31,6 +32,8 @@ import com.rtgame.warpcovers.core.EndpointStatus;
 import com.rtgame.warpcovers.core.Identity;
 import com.rtgame.warpcovers.core.InteractionState;
 import com.rtgame.warpcovers.core.Location;
+import com.rtgame.warpcovers.core.MachinePort;
+import com.rtgame.warpcovers.core.ObjectStack;
 import com.rtgame.warpcovers.core.PanelEndpoint;
 import com.rtgame.warpcovers.core.Viewer;
 
@@ -133,6 +136,138 @@ class PanelSnapshotTest {
         assertNull(other.permissions);
         assertFalse(other.canEditCreate());
         assertNull(view.row("没有"));
+    }
+
+    @Test
+    void 分组数量标签和筛选结果随快照下发() throws IOException {
+        panel.createChannel(alice, "主网", false);
+        panel.createChannel(alice, "副网", false);
+        String mainId = hub.channels()
+            .stream()
+            .filter(
+                c -> c.name()
+                    .equals("主网"))
+            .findFirst()
+            .get()
+            .id();
+        panel.addTag(alice, mainId, "基地");
+        panel.setSearch("主");
+
+        PanelSnapshot.ChannelsView view = PanelSnapshot.parseChannels(roundTrip(PanelSnapshot.channels(panel, alice)));
+
+        assertEquals(2, view.rows.size(), "不符合筛选的也下发，重名预检要用");
+        PanelSnapshot.ChannelRow main = view.row(mainId);
+        assertTrue(main.shown);
+        assertEquals(ChannelGroup.OWN, main.group);
+        assertEquals(java.util.Collections.singletonList("基地"), main.tags);
+        assertEquals(java.util.Collections.singletonList("基地"), view.allTags);
+        assertEquals(CreateFailure.DUPLICATE_NAME, view.precheck("副网"));
+        for (PanelSnapshot.ChannelRow row : view.rows) {
+            if (!row.id.equals(mainId)) {
+                assertFalse(row.shown);
+            }
+        }
+    }
+
+    @Test
+    void 标签筛选按全部到各标签再回到全部循环() throws IOException {
+        panel.createChannel(alice, "主网", false);
+        String id = hub.channels()
+            .iterator()
+            .next()
+            .id();
+        panel.addTag(alice, id, "a");
+        panel.addTag(alice, id, "b");
+
+        PanelSnapshot.ChannelsView all = PanelSnapshot.parseChannels(roundTrip(PanelSnapshot.channels(panel, alice)));
+        assertEquals("", all.tagFilter);
+        assertEquals("a", all.nextTagFilter());
+
+        panel.setTagFilter("b");
+        PanelSnapshot.ChannelsView last = PanelSnapshot.parseChannels(roundTrip(PanelSnapshot.channels(panel, alice)));
+        assertEquals("b", last.tagFilter);
+        assertEquals("", last.nextTagFilter());
+    }
+
+    @Test
+    void 最近传输记录单独下发且不含不可见频道() throws IOException {
+        panel.createChannel(alice, "主网", false);
+        String mine = hub.channels()
+            .iterator()
+            .next()
+            .id();
+        Channel hidden = hub.createChannel(ChannelType.FLUID, "别人的", bob.personalOwnerId(), "Bob", 0)
+            .channel();
+        recordTransfer(mine, "water");
+        recordTransfer(mine, "lava");
+        recordTransfer(hidden.id(), "oil");
+
+        NBTTagCompound root = roundTrip(PanelSnapshot.recents(panel, alice));
+
+        assertEquals(java.util.Arrays.asList("lava", "water"), PanelSnapshot.parseRecents(root, mine));
+        assertTrue(
+            PanelSnapshot.parseRecents(root, hidden.id())
+                .isEmpty());
+    }
+
+    /** 走真实传输留下记录：recordTransfer 是核心包内方法，这里用输入输出两台假机器。 */
+    private void recordTransfer(String channelId, String key) {
+        MemoryMachine source = new MemoryMachine("src-" + key + channelId);
+        source.amount = 100;
+        source.key = key;
+        MemoryMachine sink = new MemoryMachine("dst-" + key + channelId);
+        EndpointConfig in = new EndpointConfig();
+        in.setState(InteractionState.INPUT);
+        in.filter()
+            .add(key);
+        EndpointConfig out = new EndpointConfig();
+        out.setState(InteractionState.OUTPUT);
+        out.filter()
+            .add(key);
+        String inId = "in-" + key + channelId;
+        String outId = "out-" + key + channelId;
+        hub.connect(channelId, inId, new Location(0, nextX++, 0, 0, 0), "", in, source, null);
+        hub.connect(channelId, outId, new Location(0, nextX++, 0, 0, 0), "", out, sink, null);
+        hub.driveInput(inId, 1000 + nextX);
+    }
+
+    private int nextX = 0;
+
+    /** 最小的假机器。 */
+    private static final class MemoryMachine implements MachinePort {
+
+        private final String id;
+        String key = "";
+        long amount = 0;
+
+        MemoryMachine(String id) {
+            this.id = id;
+        }
+
+        @Override
+        public String blockId() {
+            return id;
+        }
+
+        @Override
+        public java.util.List<ObjectStack> extractable() {
+            return amount > 0 ? java.util.Collections.singletonList(new ObjectStack(key, amount))
+                : java.util.Collections.<ObjectStack>emptyList();
+        }
+
+        @Override
+        public long extract(String wanted, long max, boolean simulate) {
+            long taken = wanted.equals(key) ? Math.min(amount, max) : 0;
+            if (!simulate) {
+                amount -= taken;
+            }
+            return taken;
+        }
+
+        @Override
+        public long insert(String wanted, long max, boolean simulate) {
+            return max;
+        }
     }
 
     @Test

@@ -5,9 +5,11 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.TreeSet;
 
 import net.minecraft.nbt.NBTTagCompound;
 import net.minecraft.nbt.NBTTagList;
+import net.minecraft.nbt.NBTTagString;
 
 import com.rtgame.warpcovers.WarpCovers;
 import com.rtgame.warpcovers.core.Channel;
@@ -26,6 +28,7 @@ public final class HubNbt {
     public static final int VERSION = 1;
 
     private static final int TAG_COMPOUND = 10;
+    private static final int TAG_STRING = 8;
 
     private HubNbt() {}
 
@@ -73,6 +76,25 @@ public final class HubNbt {
             policies.appendTag(tag);
         }
         root.setTag("createPolicies", policies);
+
+        NBTTagList playerTags = new NBTTagList();
+        for (Map.Entry<String, Map<String, TreeSet<String>>> player : hub.tags()
+            .all()
+            .entrySet()) {
+            for (Map.Entry<String, TreeSet<String>> channel : player.getValue()
+                .entrySet()) {
+                NBTTagCompound tag = new NBTTagCompound();
+                tag.setString("player", player.getKey());
+                tag.setString("ch", channel.getKey());
+                NBTTagList names = new NBTTagList();
+                for (String name : channel.getValue()) {
+                    names.appendTag(new NBTTagString(name));
+                }
+                tag.setTag("tags", names);
+                playerTags.appendTag(tag);
+            }
+        }
+        root.setTag("playerTags", playerTags);
 
         List<Endpoint> sorted = new ArrayList<Endpoint>(hub.endpoints());
         Collections.sort(sorted, new Comparator<Endpoint>() {
@@ -150,6 +172,21 @@ public final class HubNbt {
         for (int i = 0; i < policies.tagCount(); i++) {
             NBTTagCompound tag = policies.getCompoundTagAt(i);
             hub.restoreCreatePolicy(tag.getString("owner"), tag.getInteger("mask"));
+        }
+        NBTTagList playerTags = root.getTagList("playerTags", TAG_COMPOUND);
+        for (int i = 0; i < playerTags.tagCount(); i++) {
+            NBTTagCompound tag = playerTags.getCompoundTagAt(i);
+            String channelId = tag.getString("ch");
+            if (hub.findChannel(channelId) == null) {
+                continue;
+            }
+            NBTTagList names = tag.getTagList("tags", TAG_STRING);
+            List<String> restored = new ArrayList<String>();
+            for (int j = 0; j < names.tagCount(); j++) {
+                restored.add(names.getStringTagAt(j));
+            }
+            hub.tags()
+                .restore(tag.getString("player"), channelId, restored);
         }
         NBTTagList endpoints = root.getTagList("endpoints", TAG_COMPOUND);
         for (int i = 0; i < endpoints.tagCount(); i++) {
