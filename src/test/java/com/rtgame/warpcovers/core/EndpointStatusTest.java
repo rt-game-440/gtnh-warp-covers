@@ -120,12 +120,12 @@ class EndpointStatusTest {
     }
 
     @Test
-    void 被对端名单过滤_两端都显示被过滤() {
+    void 被对端名单过滤_输入端显示被对端名单过滤() {
         attach("in", new FakeMachine("A", 1000).with("water", 100), InteractionState.INPUT);
         attach("out", new FakeMachine("B", 1000), InteractionState.OUTPUT, "lava");
 
         hub.driveInput("in", 0);
-        assertEquals(EndpointStatus.FILTERED, status("in", 0));
+        assertEquals(EndpointStatus.PEER_FILTERED, status("in", 0));
         assertEquals(EndpointStatus.FILTERED, status("out", 0));
     }
 
@@ -148,7 +148,7 @@ class EndpointStatusTest {
         hub.driveInput("in2", 0);
 
         assertEquals(EndpointStatus.TRANSFERRING, status("out", 0));
-        assertEquals(EndpointStatus.FILTERED, status("in2", 0));
+        assertEquals(EndpointStatus.PEER_FILTERED, status("in2", 0));
     }
 
     @Test

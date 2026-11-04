@@ -24,7 +24,7 @@ warpcovers.tooltip.clear_hint=单独放入合成台可清空配置
 
 # 覆盖板界面
 warpcovers.gui.tab.channels=频道
-warpcovers.gui.tab.settings=设置
+warpcovers.gui.tab.settings=设置（速率、周期、过滤名单）
 warpcovers.gui.new_channel=新增频道
 warpcovers.gui.no_channels=还没有频道，点「新增频道」创建一个
 warpcovers.gui.owner=归属者：%s
@@ -111,7 +111,10 @@ warpcovers.status.no_peer=频道里没有对端
 warpcovers.status.peer_unloaded=对端未加载
 warpcovers.status.peer_full=对端已满
 warpcovers.status.self_full=本机已满
-warpcovers.status.filtered=被名单过滤
+warpcovers.status.filtered=被本端名单过滤
+warpcovers.status.filtered_peer=被对端名单过滤
+warpcovers.hint.filtered=本覆盖板的名单没有放行该内容：请到「设置」标签调整名单
+warpcovers.hint.filtered_peer=对端（输出端）覆盖板的名单没有放行该内容：请到输出端覆盖板的「设置」标签调整名单
 warpcovers.status.source_empty=没有可传输的物体
 
 # 断开原因

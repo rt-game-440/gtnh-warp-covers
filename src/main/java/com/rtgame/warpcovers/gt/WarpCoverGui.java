@@ -2202,6 +2202,12 @@ public final class WarpCoverGui extends CoverBaseGui<BaseWarpCover> {
             if (view.reason != null) {
                 return tr("warpcovers.gui.reason", tr("warpcovers.reason." + view.reason.key()));
             }
+            if (view.status == EndpointStatus.FILTERED) {
+                return tr("warpcovers.hint.filtered");
+            }
+            if (view.status == EndpointStatus.PEER_FILTERED) {
+                return tr("warpcovers.hint.filtered_peer");
+            }
             return "";
         }
 

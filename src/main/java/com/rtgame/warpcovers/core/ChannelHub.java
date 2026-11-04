@@ -745,8 +745,10 @@ public final class ChannelHub {
             status = EndpointStatus.TRANSFERRING;
         } else if (!anyOffered) {
             status = EndpointStatus.SOURCE_EMPTY;
-        } else if (!anyAllowedBySelf || !anyAllowedByPeer) {
+        } else if (!anyAllowedBySelf) {
             status = EndpointStatus.FILTERED;
+        } else if (!anyAllowedByPeer) {
+            status = EndpointStatus.PEER_FILTERED;
         } else if (delivery.windowLimited) {
             // 输出端本窗口的额度用完了，下个窗口还会继续收
             status = EndpointStatus.WAITING;

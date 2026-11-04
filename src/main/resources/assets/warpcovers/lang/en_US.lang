@@ -24,7 +24,7 @@ warpcovers.tooltip.clear_hint=Craft alone to clear its configuration
 
 # Cover GUI
 warpcovers.gui.tab.channels=Channels
-warpcovers.gui.tab.settings=Settings
+warpcovers.gui.tab.settings=Settings (rate, period, filter list)
 warpcovers.gui.new_channel=+ New
 warpcovers.gui.no_channels=No channels yet. Click "New Channel" to create one
 warpcovers.gui.owner=Owner: %s
@@ -111,7 +111,10 @@ warpcovers.status.no_peer=No counterpart in the channel
 warpcovers.status.peer_unloaded=Counterpart not loaded
 warpcovers.status.peer_full=Counterpart is full
 warpcovers.status.self_full=This machine is full
-warpcovers.status.filtered=Blocked by a filter list
+warpcovers.status.filtered=Blocked by this cover's filter
+warpcovers.status.filtered_peer=Blocked by the peer's filter
+warpcovers.hint.filtered=Edit the list in the Settings tab of this cover
+warpcovers.hint.filtered_peer=The output cover's filter list does not allow this: open the Settings tab on the output cover
 warpcovers.status.source_empty=Nothing to transfer
 
 # Disconnect reasons

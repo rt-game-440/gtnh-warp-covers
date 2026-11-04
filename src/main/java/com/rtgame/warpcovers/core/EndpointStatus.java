@@ -23,6 +23,8 @@ public enum EndpointStatus {
     SELF_FULL("self_full"),
     /** 物体被过滤名单挡下。 */
     FILTERED("filtered"),
+    /** 本端名单放行，但所有对端（输出端）的名单都不放行。 */
+    PEER_FILTERED("filtered_peer"),
     /** 本端（输入端）机器里没有可抽取的物体。 */
     SOURCE_EMPTY("source_empty"),
     /** 聚合覆盖板贴在没有内部储能的方块上，能量部分不工作。 */
