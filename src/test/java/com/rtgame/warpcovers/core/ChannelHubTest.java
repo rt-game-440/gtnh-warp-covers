@@ -7,8 +7,6 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import java.util.Arrays;
-
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -25,13 +23,10 @@ class ChannelHubTest {
         channel = hub.createChannel(ChannelType.FLUID, "测试频道");
     }
 
-    /** 接入一台机器并设置状态与白名单（keys 为空则保持空白名单）。 */
-    private void attach(String id, FakeMachine machine, InteractionState state, String... keys) {
+    /** 接入一台机器并设置状态。名单属于频道，新频道默认放行一切。 */
+    private void attach(String id, FakeMachine machine, InteractionState state) {
         connect(channel.id(), id, machine);
         setState(id, state);
-        FilterList filter = new FilterList();
-        filter.replaceKeys(Arrays.asList(keys));
-        setFilter(id, filter);
     }
 
     // ---- 旧式便捷操作：直接映射到新门面 ----
@@ -44,12 +39,6 @@ class ChannelHubTest {
         hub.findEndpoint(id)
             .config()
             .setState(state);
-    }
-
-    private void setFilter(String id, FilterList filter) {
-        hub.findEndpoint(id)
-            .config()
-            .setFilter(filter);
     }
 
     private void markUnloaded(String id) {
@@ -93,8 +82,8 @@ class ChannelHubTest {
     void 断开后不再参与传输() {
         FakeMachine in = new FakeMachine("A", 1000).with("water", 500);
         FakeMachine out = new FakeMachine("B", 1000);
-        attach("in", in, InteractionState.INPUT, "water");
-        attach("out", out, InteractionState.OUTPUT, "water");
+        attach("in", in, InteractionState.INPUT);
+        attach("out", out, InteractionState.OUTPUT);
         hub.disconnect("out");
         assertNull(hub.findEndpoint("out"));
         assertEquals(
@@ -110,8 +99,8 @@ class ChannelHubTest {
     void 输入端把流体直通到输出端并守恒() {
         FakeMachine in = new FakeMachine("A", 1000).with("water", 400);
         FakeMachine out = new FakeMachine("B", 1000);
-        attach("in", in, InteractionState.INPUT, "water");
-        attach("out", out, InteractionState.OUTPUT, "water");
+        attach("in", in, InteractionState.INPUT);
+        attach("out", out, InteractionState.OUTPUT);
         TransferResult result = hub.driveInput("in", 0);
         assertEquals(400, result.transferred());
         assertEquals(0, result.lost());
@@ -124,8 +113,8 @@ class ChannelHubTest {
     void 状态为空的端点不动作() {
         FakeMachine in = new FakeMachine("A", 1000).with("water", 400);
         FakeMachine out = new FakeMachine("B", 1000);
-        attach("in", in, InteractionState.EMPTY, "water");
-        attach("out", out, InteractionState.OUTPUT, "water");
+        attach("in", in, InteractionState.EMPTY);
+        attach("out", out, InteractionState.OUTPUT);
         assertEquals(
             0,
             hub.driveInput("in", 0)
@@ -137,7 +126,7 @@ class ChannelHubTest {
     @Test
     void 没有输出端时不抽取() {
         FakeMachine in = new FakeMachine("A", 1000).with("water", 400);
-        attach("in", in, InteractionState.INPUT, "water");
+        attach("in", in, InteractionState.INPUT);
         assertEquals(
             0,
             hub.driveInput("in", 0)
@@ -152,13 +141,10 @@ class ChannelHubTest {
         FakeMachine in = new FakeMachine("A", 1000).with("water", 400);
         FakeMachine outSame = new FakeMachine("B", 1000);
         FakeMachine outOther = new FakeMachine("C", 1000);
-        attach("in", in, InteractionState.INPUT, "water");
-        attach("outSame", outSame, InteractionState.OUTPUT, "water");
+        attach("in", in, InteractionState.INPUT);
+        attach("outSame", outSame, InteractionState.OUTPUT);
         connect(other.id(), "outOther", outOther);
         setState("outOther", InteractionState.OUTPUT);
-        FilterList filter = new FilterList();
-        filter.add("water");
-        setFilter("outOther", filter);
         hub.driveInput("in", 0);
         assertEquals(400, outSame.amountOf("water"));
         assertEquals(0, outOther.total());
@@ -170,9 +156,9 @@ class ChannelHubTest {
         FakeMachine in = new FakeMachine("A", 5000).with("water", 1000);
         FakeMachine first = new FakeMachine("B", 300);
         FakeMachine second = new FakeMachine("C", 5000);
-        attach("in", in, InteractionState.INPUT, "water");
-        attach("o1", first, InteractionState.OUTPUT, "water");
-        attach("o2", second, InteractionState.OUTPUT, "water");
+        attach("in", in, InteractionState.INPUT);
+        attach("o1", first, InteractionState.OUTPUT);
+        attach("o2", second, InteractionState.OUTPUT);
         assertEquals(
             1000,
             hub.driveInput("in", 0)
@@ -182,34 +168,30 @@ class ChannelHubTest {
         assertConserved(1000, in, first, second);
     }
 
-    // ---- 过滤名单 ----
+    // ---- 过滤名单（属于频道） ----
 
     @Test
-    void 新建过滤名单是空白名单什么都不传() {
-        FakeMachine in = new FakeMachine("A", 1000).with("water", 400);
-        FakeMachine out = new FakeMachine("B", 1000);
-        attach("in", in, InteractionState.INPUT);
-        attach("out", out, InteractionState.OUTPUT);
-        FilterList fresh = new FilterList();
-        assertTrue(fresh.isWhitelist());
-        assertFalse(fresh.allows("water"));
-        assertEquals(
-            0,
-            hub.driveInput("in", 0)
-                .transferred());
-        assertConserved(400, in, out);
-    }
-
-    @Test
-    void 连接端默认过滤名单是空白名单() {
-        Endpoint endpoint = connect(channel.id(), "a", new FakeMachine("A", 10));
-        assertTrue(
-            endpoint.filter()
+    void 新频道的名单是空黑名单_放行一切() {
+        assertFalse(
+            channel.filter()
                 .isWhitelist());
         assertTrue(
-            endpoint.filter()
+            channel.filter()
                 .keys()
                 .isEmpty());
+        assertFalse(
+            channel.filter()
+                .matchNbt());
+        FakeMachine in = new FakeMachine("A", 5000).with("water", 300)
+            .with("lava", 200);
+        FakeMachine out = new FakeMachine("B", 5000);
+        attach("in", in, InteractionState.INPUT);
+        attach("out", out, InteractionState.OUTPUT);
+        assertEquals(
+            500,
+            hub.driveInput("in", 0)
+                .transferred());
+        assertConserved(500, in, out);
     }
 
     @Test
@@ -217,8 +199,10 @@ class ChannelHubTest {
         FakeMachine in = new FakeMachine("A", 5000).with("water", 300)
             .with("lava", 200);
         FakeMachine out = new FakeMachine("B", 5000);
-        attach("in", in, InteractionState.INPUT, "water");
-        attach("out", out, InteractionState.OUTPUT, "water", "lava");
+        attach("in", in, InteractionState.INPUT);
+        attach("out", out, InteractionState.OUTPUT);
+        assertTrue(hub.setFilterWhitelist(channel.id(), true));
+        assertTrue(hub.addFilterKey(channel.id(), "water"));
         hub.driveInput("in", 0);
         assertEquals(300, out.amountOf("water"));
         assertEquals(0, out.amountOf("lava"));
@@ -227,16 +211,28 @@ class ChannelHubTest {
     }
 
     @Test
+    void 空白名单什么都不传() {
+        FakeMachine in = new FakeMachine("A", 1000).with("water", 400);
+        FakeMachine out = new FakeMachine("B", 1000);
+        attach("in", in, InteractionState.INPUT);
+        attach("out", out, InteractionState.OUTPUT);
+        hub.setFilterWhitelist(channel.id(), true);
+        assertEquals(
+            0,
+            hub.driveInput("in", 0)
+                .transferred());
+        assertEquals(EndpointStatus.FILTERED, hub.statusOf("in", 0));
+        assertConserved(400, in, out);
+    }
+
+    @Test
     void 黑名单放行名单外的流体() {
         FakeMachine in = new FakeMachine("A", 5000).with("water", 300)
             .with("lava", 200);
         FakeMachine out = new FakeMachine("B", 5000);
         attach("in", in, InteractionState.INPUT);
-        attach("out", out, InteractionState.OUTPUT, "water", "lava");
-        FilterList black = new FilterList();
-        black.setWhitelist(false);
-        black.add("lava");
-        setFilter("in", black);
+        attach("out", out, InteractionState.OUTPUT);
+        hub.addFilterKey(channel.id(), "lava");
         hub.driveInput("in", 0);
         assertEquals(300, out.amountOf("water"));
         assertEquals(200, in.amountOf("lava"));
@@ -244,20 +240,64 @@ class ChannelHubTest {
     }
 
     @Test
-    void 输出端的名单决定它接收什么() {
+    void 同频道所有输出端共用同一份名单() {
         FakeMachine in = new FakeMachine("A", 5000).with("water", 300)
             .with("lava", 200);
-        FakeMachine picky = new FakeMachine("B", 5000);
-        FakeMachine open = new FakeMachine("C", 5000);
-        attach("in", in, InteractionState.INPUT, "water", "lava");
-        attach("picky", picky, InteractionState.OUTPUT, "water");
-        attach("open", open, InteractionState.OUTPUT, "water", "lava");
+        FakeMachine first = new FakeMachine("B", 5000);
+        FakeMachine second = new FakeMachine("C", 5000);
+        attach("in", in, InteractionState.INPUT);
+        attach("first", first, InteractionState.OUTPUT);
+        attach("second", second, InteractionState.OUTPUT);
+        hub.setFilterWhitelist(channel.id(), true);
+        hub.addFilterKey(channel.id(), "water");
         hub.driveInput("in", 0);
-        assertEquals(150, picky.amountOf("water"), "两边都放行的水按默认的轮询平分");
-        assertEquals(150, open.amountOf("water"));
-        assertEquals(0, picky.amountOf("lava"));
-        assertEquals(200, open.amountOf("lava"));
-        assertConserved(500, in, picky, open);
+        assertEquals(150, first.amountOf("water"), "两个输出端按默认的轮询平分");
+        assertEquals(150, second.amountOf("water"));
+        assertEquals(0, first.amountOf("lava"));
+        assertEquals(0, second.amountOf("lava"));
+        assertEquals(200, in.amountOf("lava"));
+        assertConserved(500, in, first, second);
+    }
+
+    @Test
+    void 名单不跨频道() {
+        Channel other = hub.createChannel(ChannelType.FLUID, "另一个");
+        hub.setFilterWhitelist(channel.id(), true);
+        FakeMachine in = new FakeMachine("A", 1000).with("water", 400);
+        FakeMachine out = new FakeMachine("B", 1000);
+        connect(other.id(), "in", in);
+        connect(other.id(), "out", out);
+        setState("in", InteractionState.INPUT);
+        setState("out", InteractionState.OUTPUT);
+        assertEquals(
+            400,
+            hub.driveInput("in", 0)
+                .transferred(),
+            "另一个频道仍是默认的放行一切");
+    }
+
+    @Test
+    void 修改名单会标脏() {
+        int[] dirty = { 0 };
+        hub.setDirtyListener(() -> dirty[0]++);
+        hub.setFilterWhitelist(channel.id(), true);
+        hub.setFilterMatchNbt(channel.id(), true);
+        hub.addFilterKey(channel.id(), "water");
+        assertEquals(3, dirty[0]);
+        hub.addFilterKey(channel.id(), "water");
+        hub.setFilterWhitelist(channel.id(), true);
+        assertEquals(3, dirty[0], "没有变化不标脏");
+        hub.removeFilterKey(channel.id(), "water");
+        hub.clearFilter(channel.id());
+        assertEquals(4, dirty[0]);
+    }
+
+    @Test
+    void 能量频道没有名单() {
+        Channel energy = hub.createChannel(ChannelType.ENERGY, "能量");
+        assertFalse(hub.setFilterWhitelist(energy.id(), true));
+        assertFalse(hub.addFilterKey(energy.id(), "eu"));
+        assertTrue(energy.allows("eu"));
     }
 
     // ---- 运行周期 ----
@@ -266,8 +306,8 @@ class ChannelHubTest {
     void 输入端按默认周期20tick运行() {
         FakeMachine in = new FakeMachine("A", 5000).with("water", 100);
         FakeMachine out = new FakeMachine("B", 5000);
-        attach("in", in, InteractionState.INPUT, "water");
-        attach("out", out, InteractionState.OUTPUT, "water");
+        attach("in", in, InteractionState.INPUT);
+        attach("out", out, InteractionState.OUTPUT);
         assertEquals(
             100,
             hub.driveInput("in", 100)
@@ -297,8 +337,8 @@ class ChannelHubTest {
         config.minPeriod = 10;
         FakeMachine in = new FakeMachine("A", 5000).with("water", 100);
         FakeMachine out = new FakeMachine("B", 5000);
-        attach("in", in, InteractionState.INPUT, "water");
-        attach("out", out, InteractionState.OUTPUT, "water");
+        attach("in", in, InteractionState.INPUT);
+        attach("out", out, InteractionState.OUTPUT);
         hub.driveInput("in", 0);
         in.with("water", 50);
         assertEquals(
@@ -316,8 +356,8 @@ class ChannelHubTest {
     void 调用方时钟回退后输入端仍按周期运行() {
         FakeMachine in = new FakeMachine("A", 5000).with("water", 100);
         FakeMachine out = new FakeMachine("B", 5000);
-        attach("in", in, InteractionState.INPUT, "water");
-        attach("out", out, InteractionState.OUTPUT, "water");
+        attach("in", in, InteractionState.INPUT);
+        attach("out", out, InteractionState.OUTPUT);
         assertEquals(
             100,
             hub.driveInput("in", 100000)
@@ -348,8 +388,8 @@ class ChannelHubTest {
     void 输出端满了输入端停止抽取() {
         FakeMachine in = new FakeMachine("A", 5000).with("water", 1000);
         FakeMachine out = new FakeMachine("B", 600);
-        attach("in", in, InteractionState.INPUT, "water");
-        attach("out", out, InteractionState.OUTPUT, "water");
+        attach("in", in, InteractionState.INPUT);
+        attach("out", out, InteractionState.OUTPUT);
         assertEquals(
             600,
             hub.driveInput("in", 0)
@@ -368,8 +408,8 @@ class ChannelHubTest {
     void 输入端跳过同一方块上的输出端() {
         FakeMachine in = new FakeMachine("same", 5000).with("water", 500);
         FakeMachine sameBlockOut = new FakeMachine("same", 5000);
-        attach("in", in, InteractionState.INPUT, "water");
-        attach("selfOut", sameBlockOut, InteractionState.OUTPUT, "water");
+        attach("in", in, InteractionState.INPUT);
+        attach("selfOut", sameBlockOut, InteractionState.OUTPUT);
         assertEquals(
             0,
             hub.driveInput("in", 0)
@@ -383,9 +423,9 @@ class ChannelHubTest {
         FakeMachine in = new FakeMachine("same", 5000).with("water", 500);
         FakeMachine sameBlockOut = new FakeMachine("same", 5000);
         FakeMachine other = new FakeMachine("other", 5000);
-        attach("in", in, InteractionState.INPUT, "water");
-        attach("selfOut", sameBlockOut, InteractionState.OUTPUT, "water");
-        attach("out", other, InteractionState.OUTPUT, "water");
+        attach("in", in, InteractionState.INPUT);
+        attach("selfOut", sameBlockOut, InteractionState.OUTPUT);
+        attach("out", other, InteractionState.OUTPUT);
         assertEquals(
             500,
             hub.driveInput("in", 0)
@@ -400,9 +440,9 @@ class ChannelHubTest {
         FakeMachine in = new FakeMachine("A", 5000).with("water", 500);
         FakeMachine unloaded = new FakeMachine("B", 5000);
         FakeMachine loaded = new FakeMachine("C", 5000);
-        attach("in", in, InteractionState.INPUT, "water");
-        attach("o1", unloaded, InteractionState.OUTPUT, "water");
-        attach("o2", loaded, InteractionState.OUTPUT, "water");
+        attach("in", in, InteractionState.INPUT);
+        attach("o1", unloaded, InteractionState.OUTPUT);
+        attach("o2", loaded, InteractionState.OUTPUT);
         markUnloaded("o1");
         assertFalse(
             hub.findEndpoint("o1")
@@ -417,8 +457,8 @@ class ChannelHubTest {
     void 未加载的输入端不运行且重新加载后恢复() {
         FakeMachine in = new FakeMachine("A", 5000).with("water", 500);
         FakeMachine out = new FakeMachine("B", 5000);
-        attach("in", in, InteractionState.INPUT, "water");
-        attach("out", out, InteractionState.OUTPUT, "water");
+        attach("in", in, InteractionState.INPUT);
+        attach("out", out, InteractionState.OUTPUT);
         markUnloaded("in");
         assertEquals(
             0,
@@ -441,8 +481,8 @@ class ChannelHubTest {
         FakeMachine in = new FakeMachine("A", 5000).with("water", 400)
             .with("lava", 400);
         FakeMachine out = new FakeMachine("B", 5000);
-        attach("in", in, InteractionState.INPUT, "water", "lava");
-        attach("out", out, InteractionState.OUTPUT, "water", "lava");
+        attach("in", in, InteractionState.INPUT);
+        attach("out", out, InteractionState.OUTPUT);
         assertEquals(
             150,
             hub.driveInput("in", 0)
@@ -456,8 +496,8 @@ class ChannelHubTest {
         config.fluidEnabled = false;
         FakeMachine in = new FakeMachine("A", 5000).with("water", 400);
         FakeMachine out = new FakeMachine("B", 5000);
-        attach("in", in, InteractionState.INPUT, "water");
-        attach("out", out, InteractionState.OUTPUT, "water");
+        attach("in", in, InteractionState.INPUT);
+        attach("out", out, InteractionState.OUTPUT);
         assertEquals(
             0,
             hub.driveInput("in", 0)
@@ -473,8 +513,8 @@ class ChannelHubTest {
         FakeMachine in = new FakeMachine("A", 5000).with("water", 1000);
         FakeMachine liar = new FakeMachine("B", 5000);
         liar.insertShortfall = 100;
-        attach("in", in, InteractionState.INPUT, "water");
-        attach("out", liar, InteractionState.OUTPUT, "water");
+        attach("in", in, InteractionState.INPUT);
+        attach("out", liar, InteractionState.OUTPUT);
         TransferResult result = hub.driveInput("in", 0);
         assertEquals(900, result.transferred());
         assertEquals(0, result.lost());
@@ -490,9 +530,9 @@ class ChannelHubTest {
         FakeMachine liar = new FakeMachine("B", 5000);
         liar.insertShortfall = 100;
         FakeMachine backup = new FakeMachine("C", 5000);
-        attach("in", in, InteractionState.INPUT, "water");
-        attach("o1", liar, InteractionState.OUTPUT, "water");
-        attach("o2", backup, InteractionState.OUTPUT, "water");
+        attach("in", in, InteractionState.INPUT);
+        attach("o1", liar, InteractionState.OUTPUT);
+        attach("o2", backup, InteractionState.OUTPUT);
         TransferResult result = hub.driveInput("in", 0);
         assertEquals(0, result.lost());
         assertConserved(1000, in, liar, backup);
@@ -506,8 +546,8 @@ class ChannelHubTest {
         in.restoreAlways = true;
         FakeMachine liar = new FakeMachine("B", 5000);
         liar.insertShortfall = 100;
-        attach("in", in, InteractionState.INPUT, "water");
-        attach("out", liar, InteractionState.OUTPUT, "water");
+        attach("in", in, InteractionState.INPUT);
+        attach("out", liar, InteractionState.OUTPUT);
         TransferResult result = hub.driveInput("in", 0);
         assertEquals(0, result.lost());
         assertEquals(100, in.restored, "普通插入被拒时仍能通过 restore 退回");
@@ -520,8 +560,8 @@ class ChannelHubTest {
         in.refuseInsert = true;
         FakeMachine liar = new FakeMachine("B", 5000);
         liar.insertShortfall = 100;
-        attach("in", in, InteractionState.INPUT, "water");
-        attach("out", liar, InteractionState.OUTPUT, "water");
+        attach("in", in, InteractionState.INPUT);
+        attach("out", liar, InteractionState.OUTPUT);
         TransferResult result = hub.driveInput("in", 0);
         assertEquals(100, result.lost());
         assertConserved(1000 - 100, in, liar);
@@ -535,9 +575,9 @@ class ChannelHubTest {
         FakeMachine o2 = new FakeMachine("C", 900);
         o2.insertShortfall = 7;
         config.rateCap = 333;
-        attach("in", in, InteractionState.INPUT, "water", "lava");
-        attach("o1", o1, InteractionState.OUTPUT, "water", "lava");
-        attach("o2", o2, InteractionState.OUTPUT, "water");
+        attach("in", in, InteractionState.INPUT);
+        attach("o1", o1, InteractionState.OUTPUT);
+        attach("o2", o2, InteractionState.OUTPUT);
         for (int period = 0; period < 12; period++) {
             hub.driveInput("in", period * 20L);
             assertConserved(4500, in, o1, o2);
@@ -556,9 +596,9 @@ class ChannelHubTest {
         FakeMachine in = new FakeMachine("A", 5000).with("water", 1000);
         FakeMachine low = new FakeMachine("B", 5000);
         FakeMachine high = new FakeMachine("C", 600);
-        attach("in", in, InteractionState.INPUT, "water");
-        attach("low", low, InteractionState.OUTPUT, "water");
-        attach("high", high, InteractionState.OUTPUT, "water");
+        attach("in", in, InteractionState.INPUT);
+        attach("low", low, InteractionState.OUTPUT);
+        attach("high", high, InteractionState.OUTPUT);
         configOf("high").setPriority(3);
         hub.driveInput("in", 0);
         assertEquals(600, high.total(), "高优先级先收满");
@@ -571,9 +611,9 @@ class ChannelHubTest {
         FakeMachine in = new FakeMachine("A", 5000).with("water", 100);
         FakeMachine negative = new FakeMachine("B", 5000);
         FakeMachine normal = new FakeMachine("C", 5000);
-        attach("in", in, InteractionState.INPUT, "water");
-        attach("neg", negative, InteractionState.OUTPUT, "water");
-        attach("normal", normal, InteractionState.OUTPUT, "water");
+        attach("in", in, InteractionState.INPUT);
+        attach("neg", negative, InteractionState.OUTPUT);
+        attach("normal", normal, InteractionState.OUTPUT);
         configOf("neg").setPriority(-1);
         hub.driveInput("in", 0);
         assertEquals(100, normal.total());
@@ -587,9 +627,9 @@ class ChannelHubTest {
         FakeMachine in = new FakeMachine("A", 5000).with("water", 1000);
         FakeMachine o1 = new FakeMachine("B", 5000);
         FakeMachine o2 = new FakeMachine("C", 5000);
-        attach("in", in, InteractionState.INPUT, "water");
-        attach("o1", o1, InteractionState.OUTPUT, "water");
-        attach("o2", o2, InteractionState.OUTPUT, "water");
+        attach("in", in, InteractionState.INPUT);
+        attach("o1", o1, InteractionState.OUTPUT);
+        attach("o2", o2, InteractionState.OUTPUT);
         hub.driveInput("in", 0);
         assertEquals(500, o1.total());
         assertEquals(500, o2.total());
@@ -602,10 +642,10 @@ class ChannelHubTest {
         FakeMachine o1 = new FakeMachine("B", 5000);
         FakeMachine o2 = new FakeMachine("C", 5000);
         FakeMachine o3 = new FakeMachine("D", 5000);
-        attach("in", in, InteractionState.INPUT, "water");
-        attach("o1", o1, InteractionState.OUTPUT, "water");
-        attach("o2", o2, InteractionState.OUTPUT, "water");
-        attach("o3", o3, InteractionState.OUTPUT, "water");
+        attach("in", in, InteractionState.INPUT);
+        attach("o1", o1, InteractionState.OUTPUT);
+        attach("o2", o2, InteractionState.OUTPUT);
+        attach("o3", o3, InteractionState.OUTPUT);
         configOf("in").setRate(1);
         hub.driveInput("in", 0);
         assertEquals(1, o1.total());
@@ -629,11 +669,11 @@ class ChannelHubTest {
         FakeMachine h2 = new FakeMachine("C", 1);
         FakeMachine l1 = new FakeMachine("D", 5000);
         FakeMachine l2 = new FakeMachine("E", 5000);
-        attach("in", in, InteractionState.INPUT, "water");
-        attach("h1", h1, InteractionState.OUTPUT, "water");
-        attach("h2", h2, InteractionState.OUTPUT, "water");
-        attach("l1", l1, InteractionState.OUTPUT, "water");
-        attach("l2", l2, InteractionState.OUTPUT, "water");
+        attach("in", in, InteractionState.INPUT);
+        attach("h1", h1, InteractionState.OUTPUT);
+        attach("h2", h2, InteractionState.OUTPUT);
+        attach("l1", l1, InteractionState.OUTPUT);
+        attach("l2", l2, InteractionState.OUTPUT);
         configOf("h1").setPriority(1);
         configOf("h2").setPriority(1);
         configOf("in").setRate(1);
@@ -656,10 +696,10 @@ class ChannelHubTest {
         FakeMachine o1 = new FakeMachine("B", 300);
         FakeMachine o2 = new FakeMachine("C", 5000);
         FakeMachine o3 = new FakeMachine("D", 5000);
-        attach("in", in, InteractionState.INPUT, "water");
-        attach("o1", o1, InteractionState.OUTPUT, "water");
-        attach("o2", o2, InteractionState.OUTPUT, "water");
-        attach("o3", o3, InteractionState.OUTPUT, "water");
+        attach("in", in, InteractionState.INPUT);
+        attach("o1", o1, InteractionState.OUTPUT);
+        attach("o2", o2, InteractionState.OUTPUT);
+        attach("o3", o3, InteractionState.OUTPUT);
         hub.driveInput("in", 0);
         assertEquals(300, o1.total());
         assertEquals(700, o2.total());
@@ -684,8 +724,8 @@ class ChannelHubTest {
     void 输入端每周期最多搬运单板速率() {
         FakeMachine in = new FakeMachine("A", 5000).with("water", 1000);
         FakeMachine out = new FakeMachine("B", 5000);
-        attach("in", in, InteractionState.INPUT, "water");
-        attach("out", out, InteractionState.OUTPUT, "water");
+        attach("in", in, InteractionState.INPUT);
+        attach("out", out, InteractionState.OUTPUT);
         configOf("in").setRate(120);
         assertEquals(
             120,
@@ -703,8 +743,8 @@ class ChannelHubTest {
         config.rateCap = 100;
         FakeMachine in = new FakeMachine("A", 5000).with("water", 1000);
         FakeMachine out = new FakeMachine("B", 5000);
-        attach("in", in, InteractionState.INPUT, "water");
-        attach("out", out, InteractionState.OUTPUT, "water");
+        attach("in", in, InteractionState.INPUT);
+        attach("out", out, InteractionState.OUTPUT);
         configOf("in").setRate(500);
         assertEquals(
             100,
@@ -725,8 +765,8 @@ class ChannelHubTest {
     void 输出端速率以它自身的周期为窗口() {
         FakeMachine in = new FakeMachine("A", 5000).with("water", 1000);
         FakeMachine out = new FakeMachine("B", 5000);
-        attach("in", in, InteractionState.INPUT, "water");
-        attach("out", out, InteractionState.OUTPUT, "water");
+        attach("in", in, InteractionState.INPUT);
+        attach("out", out, InteractionState.OUTPUT);
         configOf("in").setPeriod(1);
         configOf("out").setRate(100);
         configOf("out").setPeriod(10);
@@ -751,9 +791,9 @@ class ChannelHubTest {
         FakeMachine in1 = new FakeMachine("A", 5000).with("water", 1000);
         FakeMachine in2 = new FakeMachine("B", 5000).with("water", 1000);
         FakeMachine out = new FakeMachine("C", 5000);
-        attach("in1", in1, InteractionState.INPUT, "water");
-        attach("in2", in2, InteractionState.INPUT, "water");
-        attach("out", out, InteractionState.OUTPUT, "water");
+        attach("in1", in1, InteractionState.INPUT);
+        attach("in2", in2, InteractionState.INPUT);
+        attach("out", out, InteractionState.OUTPUT);
         configOf("out").setRate(100);
         assertEquals(
             100,
@@ -772,9 +812,9 @@ class ChannelHubTest {
         FakeMachine in = new FakeMachine("A", 5000).with("water", 1000);
         FakeMachine limited = new FakeMachine("B", 5000);
         FakeMachine open = new FakeMachine("C", 5000);
-        attach("in", in, InteractionState.INPUT, "water");
-        attach("limited", limited, InteractionState.OUTPUT, "water");
-        attach("open", open, InteractionState.OUTPUT, "water");
+        attach("in", in, InteractionState.INPUT);
+        attach("limited", limited, InteractionState.OUTPUT);
+        attach("open", open, InteractionState.OUTPUT);
         configOf("limited").setPriority(1);
         configOf("limited").setRate(150);
         hub.driveInput("in", 0);
@@ -787,8 +827,8 @@ class ChannelHubTest {
     void 单板周期决定输入端运行间隔且修改后立即生效() {
         FakeMachine in = new FakeMachine("A", 5000).with("water", 1000);
         FakeMachine out = new FakeMachine("B", 5000);
-        attach("in", in, InteractionState.INPUT, "water");
-        attach("out", out, InteractionState.OUTPUT, "water");
+        attach("in", in, InteractionState.INPUT);
+        attach("out", out, InteractionState.OUTPUT);
         configOf("in").setRate(10);
         configOf("in").setPeriod(5);
         hub.driveInput("in", 0);
@@ -819,8 +859,8 @@ class ChannelHubTest {
     void 调高最短周期后已有覆盖板立即按新下限运行() {
         FakeMachine in = new FakeMachine("A", 5000).with("water", 1000);
         FakeMachine out = new FakeMachine("B", 5000);
-        attach("in", in, InteractionState.INPUT, "water");
-        attach("out", out, InteractionState.OUTPUT, "water");
+        attach("in", in, InteractionState.INPUT);
+        attach("out", out, InteractionState.OUTPUT);
         configOf("in").setRate(10);
         configOf("in").setPeriod(5);
         hub.driveInput("in", 0);
@@ -848,10 +888,10 @@ class ChannelHubTest {
         FakeMachine liar = new FakeMachine("C", 1500);
         liar.insertShortfall = 3;
         FakeMachine low = new FakeMachine("D", 100000);
-        attach("in", in, InteractionState.INPUT, "water", "lava");
-        attach("high", high, InteractionState.OUTPUT, "water");
-        attach("liar", liar, InteractionState.OUTPUT, "water", "lava");
-        attach("low", low, InteractionState.OUTPUT, "water", "lava");
+        attach("in", in, InteractionState.INPUT);
+        attach("high", high, InteractionState.OUTPUT);
+        attach("liar", liar, InteractionState.OUTPUT);
+        attach("low", low, InteractionState.OUTPUT);
         configOf("high").setPriority(2);
         configOf("high").setRate(77);
         configOf("liar").setPriority(1);
@@ -869,7 +909,7 @@ class ChannelHubTest {
     // ---- 能量频道 ----
 
     @Test
-    void 能量频道没有名单_空白名单也照常传输() {
+    void 能量频道不看名单照常传输() {
         Channel energy = hub.createChannel(ChannelType.ENERGY, "能量频道");
         FakeMachine in = new FakeMachine("A", 100000).with("eu", 5000);
         FakeMachine out = new FakeMachine("B", 3000);
@@ -877,11 +917,8 @@ class ChannelHubTest {
         connect(energy.id(), "out", out);
         setState("in", InteractionState.INPUT);
         setState("out", InteractionState.OUTPUT);
-        // 默认的空白名单在流体、物品频道会挡住一切，能量频道不看名单
-        assertTrue(
-            hub.findEndpoint("in")
-                .filter()
-                .isWhitelist());
+        // 能量频道没有名单，即使把名单切到白名单也不起作用
+        assertFalse(hub.setFilterWhitelist(energy.id(), true));
         hub.driveInput("in", 0);
         assertEquals(3000, out.amountOf("eu"), "充满即止");
         assertEquals(2000, in.amountOf("eu"));

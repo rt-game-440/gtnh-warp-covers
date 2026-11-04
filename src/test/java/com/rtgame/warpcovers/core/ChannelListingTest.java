@@ -325,12 +325,8 @@ class ChannelListingTest {
         source.with("water", 500L);
         EndpointConfig in = new EndpointConfig();
         in.setState(InteractionState.INPUT);
-        in.filter()
-            .add("water");
         EndpointConfig out = new EndpointConfig();
         out.setState(InteractionState.OUTPUT);
-        out.filter()
-            .add("water");
         hub.connect(channel.id(), "in", source.location, "alice", in, source, null);
 
         hub.driveInput("in", 100);

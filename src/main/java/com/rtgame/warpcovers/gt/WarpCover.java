@@ -2,6 +2,7 @@ package com.rtgame.warpcovers.gt;
 
 import javax.annotation.Nonnull;
 
+import com.rtgame.warpcovers.core.Channel;
 import com.rtgame.warpcovers.core.ChannelType;
 import com.rtgame.warpcovers.core.DisconnectReason;
 import com.rtgame.warpcovers.core.EndpointConfig;
@@ -48,9 +49,12 @@ public abstract class WarpCover extends BaseWarpCover implements PanelEndpoint {
             .state();
     }
 
+    /** 所连频道的过滤名单（只读用）；未连接或频道没有名单时是一份空的默认名单。 */
     public FilterList filter() {
-        return part.config()
-            .filter();
+        Channel channel = WarpServices.isInstalled() ? WarpServices.hub()
+            .findChannel(channelId()) : null;
+        return channel == null || !channel.type()
+            .hasFilter() ? Channel.defaultFilter() : channel.filter();
     }
 
     @Override

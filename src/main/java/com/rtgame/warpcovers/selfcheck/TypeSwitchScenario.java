@@ -67,8 +67,6 @@ public final class TypeSwitchScenario implements SelfCheckScenario {
         FluidWarpCover output = attachCover(tankB, ForgeDirection.UP);
         for (FluidWarpCover cover : new FluidWarpCover[] { input, output }) {
             cover.connect(channel.id(), "selfcheck");
-            cover.filter()
-                .add("water");
         }
         input.setInteractionState(InteractionState.INPUT);
         output.setInteractionState(InteractionState.OUTPUT);
@@ -87,8 +85,17 @@ public final class TypeSwitchScenario implements SelfCheckScenario {
             expect("关闭时 A 里的水（不传输）", 1000, fluidIn(tankA, "water"));
             expect("关闭时 B 里的水（不变）", 1000, fluidIn(tankB, "water"));
             check("关闭后频道仍在", hub.findChannel(channel.id()) != null);
-            check("关闭后覆盖板仍连着频道", channel.id().equals(input.channelId()) && channel.id().equals(output.channelId()));
-            expect("关闭时输入端状态", EndpointStatus.DISABLED.ordinal(), hub.statusOf(input.endpointId(), 20).ordinal());
+            check(
+                "关闭后覆盖板仍连着频道",
+                channel.id()
+                    .equals(input.channelId())
+                    && channel.id()
+                        .equals(output.channelId()));
+            expect(
+                "关闭时输入端状态",
+                EndpointStatus.DISABLED.ordinal(),
+                hub.statusOf(input.endpointId(), 20)
+                    .ordinal());
             expect(
                 "关闭时界面状态",
                 EndpointStatus.DISABLED.ordinal(),

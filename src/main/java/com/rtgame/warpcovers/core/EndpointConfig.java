@@ -1,13 +1,12 @@
 package com.rtgame.warpcovers.core;
 
 /**
- * 连接端配置：交互状态、过滤名单、优先级、速率、周期。
+ * 连接端配置：交互状态、优先级、速率、周期。过滤名单属于频道，不在这里。
  * 覆盖板持有并且是它的权威；覆盖板加载期间，核心索引与覆盖板共用同一个对象。
  */
 public final class EndpointConfig {
 
     private InteractionState state = InteractionState.EMPTY;
-    private FilterList filter = new FilterList();
     /** 输出优先级，越大越先收。 */
     private int priority = 0;
     /** 每个周期的速率上限；0 表示不限（仍受全局上限约束）。 */
@@ -21,14 +20,6 @@ public final class EndpointConfig {
 
     public void setState(InteractionState state) {
         this.state = state;
-    }
-
-    public FilterList filter() {
-        return filter;
-    }
-
-    public void setFilter(FilterList filter) {
-        this.filter = filter;
     }
 
     public int priority() {
@@ -63,7 +54,6 @@ public final class EndpointConfig {
 
     public void copyFrom(EndpointConfig other) {
         state = other.state;
-        filter = other.filter.copy();
         priority = other.priority;
         rate = other.rate;
         period = other.period;
@@ -75,14 +65,11 @@ public final class EndpointConfig {
             return false;
         }
         EndpointConfig other = (EndpointConfig) o;
-        return state == other.state && filter.equals(other.filter)
-            && priority == other.priority
-            && rate == other.rate
-            && period == other.period;
+        return state == other.state && priority == other.priority && rate == other.rate && period == other.period;
     }
 
     @Override
     public int hashCode() {
-        return ((state.hashCode() * 31 + filter.hashCode()) * 31 + priority) * 31 + (int) rate * 7 + period;
+        return (state.hashCode() * 31 + priority) * 31 + (int) rate * 7 + period;
     }
 }

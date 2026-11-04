@@ -301,6 +301,16 @@ final class ScenarioWorld {
         return ids.size();
     }
 
+    /** 设置频道的过滤名单（名单属于频道，两端共用）：先清空，再按给定内容重设。 */
+    static void setFilter(ChannelHub hub, Channel channel, boolean whitelist, boolean matchNbt, String... keys) {
+        hub.setFilterWhitelist(channel.id(), whitelist);
+        hub.setFilterMatchNbt(channel.id(), matchNbt);
+        hub.clearFilter(channel.id());
+        for (String key : keys) {
+            hub.addFilterKey(channel.id(), key);
+        }
+    }
+
     static Channel channelNamed(ChannelHub hub, String name) {
         Channel found = null;
         for (Channel channel : hub.channels()) {

@@ -20,6 +20,8 @@ public final class Channel {
     private String ownerName;
     private DistributionMode distribution = DistributionMode.ROUND_ROBIN;
     private ChannelPermissions permissions = new ChannelPermissions();
+    /** 过滤名单：频道里所有连接端共用；新频道是空的黑名单（放行一切）。能量频道不使用。 */
+    private FilterList filter = defaultFilter();
     /** 按连接顺序号升序。 */
     private final List<Endpoint> endpoints = new ArrayList<Endpoint>();
 
@@ -34,6 +36,13 @@ public final class Channel {
         this.color = color & 0xFFFFFF;
         this.ownerId = ownerId == null ? "" : ownerId;
         this.ownerName = ownerName == null ? "" : ownerName;
+    }
+
+    /** 新频道的名单：黑名单、无条目、不匹配 NBT，也就是放行一切。 */
+    public static FilterList defaultFilter() {
+        FilterList list = new FilterList();
+        list.setWhitelist(false);
+        return list;
     }
 
     /** 内部 ID，不可变（ADR-0002）。 */
@@ -98,6 +107,20 @@ public final class Channel {
 
     void setPermissions(ChannelPermissions permissions) {
         this.permissions = permissions == null ? new ChannelPermissions() : permissions;
+    }
+
+    /** 频道的过滤名单（可变，改动后须通过 {@link ChannelHub} 的方法标脏）。 */
+    public FilterList filter() {
+        return filter;
+    }
+
+    void setFilter(FilterList filter) {
+        this.filter = filter == null ? defaultFilter() : filter;
+    }
+
+    /** 名单是否放行该物体；没有名单的频道类型（能量）一律放行。 */
+    public boolean allows(String key) {
+        return !type.hasFilter() || filter.allows(key);
     }
 
     /** 当前连在频道上的连接端，按连接顺序号升序。 */

@@ -19,17 +19,9 @@ class EndpointStatusTest {
         channel = hub.createChannel(ChannelType.FLUID, "状态频道");
     }
 
-    private FakeMachine attach(String id, FakeMachine machine, InteractionState state, String... whitelist) {
+    private FakeMachine attach(String id, FakeMachine machine, InteractionState state) {
         EndpointConfig cfg = new EndpointConfig();
         cfg.setState(state);
-        for (String key : whitelist) {
-            cfg.filter()
-                .add(key);
-        }
-        if (whitelist.length == 0) {
-            cfg.filter()
-                .setWhitelist(false);
-        }
         hub.connect(channel.id(), id, machine.location, "tester", cfg, machine, null);
         return machine;
     }
@@ -111,8 +103,10 @@ class EndpointStatusTest {
     }
 
     @Test
-    void 被自身名单过滤() {
-        attach("in", new FakeMachine("A", 1000).with("water", 100), InteractionState.INPUT, "lava");
+    void 被频道名单过滤() {
+        hub.setFilterWhitelist(channel.id(), true);
+        hub.addFilterKey(channel.id(), "lava");
+        attach("in", new FakeMachine("A", 1000).with("water", 100), InteractionState.INPUT);
         attach("out", new FakeMachine("B", 1000), InteractionState.OUTPUT);
 
         hub.driveInput("in", 0);
@@ -120,13 +114,13 @@ class EndpointStatusTest {
     }
 
     @Test
-    void 被对端名单过滤_输入端显示被对端名单过滤() {
+    void 名单放行时不显示被过滤() {
+        hub.addFilterKey(channel.id(), "lava");
         attach("in", new FakeMachine("A", 1000).with("water", 100), InteractionState.INPUT);
-        attach("out", new FakeMachine("B", 1000), InteractionState.OUTPUT, "lava");
+        attach("out", new FakeMachine("B", 1000), InteractionState.OUTPUT);
 
         hub.driveInput("in", 0);
-        assertEquals(EndpointStatus.PEER_FILTERED, status("in", 0));
-        assertEquals(EndpointStatus.FILTERED, status("out", 0));
+        assertEquals(EndpointStatus.TRANSFERRING, status("in", 0));
     }
 
     @Test
@@ -142,13 +136,13 @@ class EndpointStatusTest {
     void 同一时刻输出端只升级不降级() {
         attach("in1", new FakeMachine("A", 1000).with("water", 100), InteractionState.INPUT);
         attach("in2", new FakeMachine("C", 1000).with("lava", 100), InteractionState.INPUT);
-        attach("out", new FakeMachine("B", 1000), InteractionState.OUTPUT, "water");
+        attach("out", new FakeMachine("B", 100), InteractionState.OUTPUT);
 
         hub.driveInput("in1", 0);
         hub.driveInput("in2", 0);
 
-        assertEquals(EndpointStatus.TRANSFERRING, status("out", 0));
-        assertEquals(EndpointStatus.PEER_FILTERED, status("in2", 0));
+        assertEquals(EndpointStatus.TRANSFERRING, status("out", 0), "后来的输入端发现已满，不能把传输中降级");
+        assertEquals(EndpointStatus.PEER_FULL, status("in2", 0));
     }
 
     @Test

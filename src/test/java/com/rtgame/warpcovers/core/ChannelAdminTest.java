@@ -187,6 +187,87 @@ class ChannelAdminTest {
         assertDenied("no_configure_permission", admin.rename(BOB, channel.id(), "抢走"));
     }
 
+    // ---- 过滤名单 ----
+
+    @Test
+    void 有修改配置权限时能改频道的名单() {
+        String id = channel.id();
+        assertFalse(
+            admin.setFilterWhitelist(ALICE, id, true)
+                .isError());
+        assertFalse(
+            admin.setFilterMatchNbt(ALICE, id, true)
+                .isError());
+        assertEquals(
+            "filter_added",
+            admin.addFilterKey(ALICE, id, "water")
+                .key());
+        assertEquals(
+            "filter_added_none",
+            admin.addFilterKey(ALICE, id, "water")
+                .key(),
+            "已在名单里不重复加");
+        PanelNotice many = admin.addFilterKeys(ALICE, id, java.util.Arrays.asList("lava", "water", "oil", "lava"));
+        assertEquals("filter_added", many.key());
+        assertEquals("2", many.arg());
+        assertTrue(
+            channel.filter()
+                .isWhitelist());
+        assertTrue(
+            channel.filter()
+                .matchNbt());
+        assertEquals(
+            new java.util.LinkedHashSet<String>(java.util.Arrays.asList("water", "lava", "oil")),
+            channel.filter()
+                .keys());
+        assertFalse(
+            admin.removeFilterKey(ALICE, id, "water")
+                .isError());
+        assertFalse(
+            admin.clearFilter(ALICE, id)
+                .isError());
+        assertTrue(
+            channel.filter()
+                .keys()
+                .isEmpty());
+    }
+
+    @Test
+    void 没有修改配置权限时不能改名单() {
+        String id = channel.id();
+        hub.addFilterKey(id, "water");
+        assertDenied("no_configure_permission", admin.setFilterWhitelist(BOB, id, true));
+        assertDenied("no_configure_permission", admin.setFilterMatchNbt(BOB, id, true));
+        assertDenied("no_configure_permission", admin.addFilterKey(BOB, id, "lava"));
+        assertDenied("no_configure_permission", admin.addFilterKeys(BOB, id, java.util.Arrays.asList("lava")));
+        assertDenied("no_configure_permission", admin.removeFilterKey(BOB, id, "water"));
+        assertDenied("no_configure_permission", admin.clearFilter(BOB, id));
+        assertFalse(
+            channel.filter()
+                .isWhitelist());
+        assertFalse(
+            channel.filter()
+                .matchNbt());
+        assertEquals(
+            java.util.Collections.singleton("water"),
+            channel.filter()
+                .keys());
+    }
+
+    @Test
+    void 能量频道没有名单() {
+        Channel energy = hub
+            .createChannel(ChannelType.ENERGY, "电", ALICE.personalOwnerId(), ALICE.name(), ChannelColors.DEFAULT)
+            .channel();
+        assertDenied("no_filter", admin.setFilterWhitelist(ALICE, energy.id(), true));
+        assertDenied("no_filter", admin.addFilterKey(ALICE, energy.id(), "eu"));
+    }
+
+    @Test
+    void 频道不存在时改名单给出提示() {
+        assertDenied("channel_missing", admin.clearFilter(ALICE, "nope"));
+    }
+
     // ---- 权限 ----
 
     @Test

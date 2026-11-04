@@ -26,12 +26,18 @@ class ModRecipesPlanTest {
         assertFalse(noFluid.contains("convert"));
         assertFalse(noFluid.contains("aggregate"));
         assertTrue(noFluid.contains("item") && noFluid.contains("energy") && noFluid.contains("manager"));
-        assertFalse(ModRecipes.plan(true, false, true).contains("item"));
-        assertFalse(ModRecipes.plan(true, true, false).contains("energy"));
+        assertFalse(
+            ModRecipes.plan(true, false, true)
+                .contains("item"));
+        assertFalse(
+            ModRecipes.plan(true, true, false)
+                .contains("energy"));
     }
 
     @Test
     void 全部关闭时没有任何配方() {
-        assertTrue(ModRecipes.plan(false, false, false).isEmpty());
+        assertTrue(
+            ModRecipes.plan(false, false, false)
+                .isEmpty());
     }
 }

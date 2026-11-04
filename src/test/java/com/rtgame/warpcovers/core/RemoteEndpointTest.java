@@ -67,25 +67,49 @@ class RemoteEndpointTest {
         panel.setPriority(5);
         panel.setRate(100);
         panel.setPeriod(40);
-        panel.addFilterKey("stick");
-        panel.setWhitelist(false);
 
         assertEquals(InteractionState.OUTPUT, config.state());
         assertEquals(5, config.priority());
         assertEquals(100, config.rate());
         assertEquals(40, config.period());
-        assertTrue(
-            config.filter()
-                .keys()
-                .contains("stick"));
-        assertFalse(
-            config.filter()
-                .isWhitelist());
         assertEquals(
             ALICE.playerId(),
             hub.findEndpoint("ep")
                 .connector());
-        assertEquals(6, host.changes, "每次改动都要通知覆盖板存盘和同步外观");
+        assertEquals(4, host.changes, "每次改动都要通知覆盖板存盘和同步外观");
+    }
+
+    @Test
+    void 远程改的名单是频道的名单且要求修改配置权限() {
+        RemoteEndpoint remote = new RemoteEndpoint(hub, ALICE);
+        assertNull(remote.select("ep"));
+        CoverPanel panel = panelFor(remote);
+
+        assertFalse(
+            panel.addFilterKey(ALICE, "stick")
+                .isError());
+        assertFalse(
+            panel.setWhitelist(ALICE, true)
+                .isError());
+        assertTrue(
+            channel.filter()
+                .keys()
+                .contains("stick"));
+        assertTrue(
+            channel.filter()
+                .isWhitelist());
+        assertEquals(0, host.changes, "名单属于频道，不通知覆盖板");
+
+        // 有连接权限但没有修改配置权限（陌生人）不能改
+        hub.setPermission(channel.id(), Identity.STRANGER, Permission.CONNECT, true);
+        RemoteEndpoint strangerRemote = new RemoteEndpoint(hub, BOB);
+        assertNull(strangerRemote.select("ep"));
+        PanelNotice denied = panelFor(strangerRemote).clearFilter(BOB);
+        assertEquals(new PanelNotice("no_configure_permission", "主网", true), denied);
+        assertTrue(
+            channel.filter()
+                .keys()
+                .contains("stick"));
     }
 
     @Test
@@ -116,15 +140,10 @@ class RemoteEndpointTest {
         machine.alive = false;
 
         panel.setPriority(9);
-        panel.addFilterKey("stick");
         panel.setState(ALICE, InteractionState.INPUT);
         remote.disconnect();
 
         assertEquals(0, config.priority());
-        assertTrue(
-            config.filter()
-                .keys()
-                .isEmpty());
         assertEquals(InteractionState.EMPTY, config.state());
         assertEquals(
             BOB.playerId(),
@@ -133,11 +152,10 @@ class RemoteEndpointTest {
             "没有生效的操作不更换连接者");
         assertEquals(0, host.changes);
         assertTrue(host.reasons.isEmpty());
-        assertTrue(
+        assertEquals(
+            0,
             remote.config()
-                .filter()
-                .keys()
-                .isEmpty(),
+                .priority(),
             "被拒绝的改动也不留在副本里");
     }
 

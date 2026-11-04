@@ -12,7 +12,6 @@ import net.minecraft.util.StatCollector;
 import com.rtgame.warpcovers.WarpCovers;
 import com.rtgame.warpcovers.core.ChannelType;
 import com.rtgame.warpcovers.core.EndpointConfig;
-import com.rtgame.warpcovers.core.FilterList;
 import com.rtgame.warpcovers.core.InteractionState;
 
 /**
@@ -52,16 +51,16 @@ public class WarpCoverItem extends Item {
             // 聚合覆盖板：三个连接端各一段
             for (ChannelType type : ChannelType.values()) {
                 lines.add(EnumChatFormatting.AQUA + tr("warpcovers.gui.section." + type.key()));
-                addEndpointLines(tag.getCompoundTag(type.key()), type.hasFilter(), lines);
+                addEndpointLines(tag.getCompoundTag(type.key()), lines);
             }
         } else {
-            addEndpointLines(tag, hasFilter(stack), lines);
+            addEndpointLines(tag, lines);
         }
         lines.add(EnumChatFormatting.DARK_GRAY + tr("warpcovers.tooltip.clear_hint"));
     }
 
     @SuppressWarnings({ "rawtypes", "unchecked" })
-    private static void addEndpointLines(NBTTagCompound tag, boolean hasFilter, List lines) {
+    private static void addEndpointLines(NBTTagCompound tag, List lines) {
         String channelId = tag.getString(CoverEndpoint.NBT_CHANNEL);
         if (channelId.isEmpty()) {
             lines.add(EnumChatFormatting.GRAY + tr("warpcovers.tooltip.unconnected"));
@@ -71,14 +70,6 @@ public class WarpCoverItem extends Item {
         EndpointConfig config = new EndpointConfig();
         ConfigNbt.read(tag, config);
         lines.add(tr("warpcovers.tooltip.state", tr(stateKey(config.state()))));
-        FilterList filter = config.filter();
-        if (hasFilter) {
-            lines.add(
-                tr(
-                    filter.isWhitelist() ? "warpcovers.tooltip.whitelist" : "warpcovers.tooltip.blacklist",
-                    filter.keys()
-                        .size()));
-        }
         if (config.priority() != 0) {
             lines.add(tr("warpcovers.tooltip.priority", config.priority()));
         }
@@ -88,11 +79,6 @@ public class WarpCoverItem extends Item {
         if (config.period() > 0) {
             lines.add(tr("warpcovers.tooltip.period", config.period()));
         }
-    }
-
-    /** 能量覆盖板没有过滤名单，提示里不显示名单行。 */
-    private static boolean hasFilter(ItemStack stack) {
-        return stack.getItem() != ModItems.energyCover;
     }
 
     public static String stateKey(InteractionState state) {

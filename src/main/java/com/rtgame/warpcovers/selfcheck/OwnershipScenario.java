@@ -208,8 +208,8 @@ public final class OwnershipScenario implements SelfCheckScenario {
         // 无权限者贴带配置的覆盖板：只断开频道，其余配置保留
         FluidWarpCover configured = attachCover(tank2, ForgeDirection.UP);
         configured.connect(channel.id(), LEADER.toString());
-        configured.filter()
-            .add("water");
+        configured.config()
+            .setPriority(5);
         configured.config()
             .setRate(123);
         configured.configChanged();
@@ -223,11 +223,11 @@ public final class OwnershipScenario implements SelfCheckScenario {
             pasted.channelId()
                 .isEmpty());
         check("断开原因应为贴上者没有权限", pasted.lastReason() == DisconnectReason.NO_PERMISSION);
-        check(
-            "名单应保留",
-            pasted.filter()
-                .keys()
-                .contains("water"));
+        expect(
+            "优先级应保留",
+            5,
+            pasted.config()
+                .priority());
         expect(
             "速率应保留",
             123,
@@ -268,10 +268,9 @@ public final class OwnershipScenario implements SelfCheckScenario {
         FluidWarpCover pasted = coverAt(tank3, ForgeDirection.UP);
         if (!pasted.channelId()
             .isEmpty()
-            || !pasted.filter()
-                .keys()
-                .contains("water")) {
-            return SelfCheckResult.fail("重启后贴板断开状态或名单丢失");
+            || pasted.config()
+                .priority() != 5) {
+            return SelfCheckResult.fail("重启后贴板断开状态或优先级丢失");
         }
         Channel moved = channelNamed(WarpServices.hub(), TEAM_CHANNEL + " 2");
         if (!Viewer.personalOwnerId(LEADER.toString())

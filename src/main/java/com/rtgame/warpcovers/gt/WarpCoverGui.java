@@ -40,9 +40,9 @@ import com.cleanroommc.modularui.utils.serialization.ByteBufAdapters;
 import com.cleanroommc.modularui.value.BoolValue;
 import com.cleanroommc.modularui.value.StringValue;
 import com.cleanroommc.modularui.value.sync.DynamicLinkedSyncHandler;
-import com.cleanroommc.modularui.value.sync.FluidSlotSyncHandler;
 import com.cleanroommc.modularui.value.sync.GenericSyncValue;
 import com.cleanroommc.modularui.value.sync.LongSyncValue;
+import com.cleanroommc.modularui.value.sync.ModularSyncManager;
 import com.cleanroommc.modularui.value.sync.PanelSyncManager;
 import com.cleanroommc.modularui.widget.ParentWidget;
 import com.cleanroommc.modularui.widgets.ButtonWidget;
@@ -54,11 +54,9 @@ import com.cleanroommc.modularui.widgets.PagedWidget;
 import com.cleanroommc.modularui.widgets.ScrollingTextWidget;
 import com.cleanroommc.modularui.widgets.ToggleButton;
 import com.cleanroommc.modularui.widgets.layout.Flow;
-import com.cleanroommc.modularui.widgets.slot.FluidSlot;
-import com.cleanroommc.modularui.widgets.slot.ModularSlot;
-import com.cleanroommc.modularui.widgets.slot.PhantomItemSlot;
 import com.cleanroommc.modularui.widgets.textfield.TextFieldWidget;
 import com.rtgame.warpcovers.WarpCovers;
+import com.rtgame.warpcovers.core.Channel;
 import com.rtgame.warpcovers.core.ChannelAdmin;
 import com.rtgame.warpcovers.core.ChannelColors;
 import com.rtgame.warpcovers.core.ChannelGroup;
@@ -86,6 +84,7 @@ import gregtech.common.gui.modularui.cover.base.CoverBaseGui;
 
 /**
  * 折跃覆盖板界面：单类型覆盖板的左侧边栏是「频道」「设置」两页；聚合覆盖板是流体、物品、能量频道和按类型分段的设置。底部状态栏。
+ * 设置页只有输出优先级、速率、运行周期；过滤名单属于频道，在频道配置面板（齿轮）里编辑，覆盖板和折跃频道管理器用同一套。
  * 服务端按玩家构建快照（{@link PanelSnapshot}）同步给客户端，客户端的每个操作都是发往服务端的请求，
  * 由 {@link CoverPanel} 校验后执行，结果随下一次快照回到界面。
  */
@@ -100,10 +99,9 @@ public final class WarpCoverGui extends CoverBaseGui<BaseWarpCover> {
     private static final int ROW_W = PAGE_W - 8;
     private static final int ROW_H = 14;
     private static final int STATUS_Y = PAGE_H + 4;
-    /** 设置页：顶部一行数字输入框，下面是过滤名单。 */
+    /** 设置页：顶部一行数字输入框，下面是说明文字。 */
     private static final int FIELD_GAP = 3;
-    private static final int FILTER_Y = 25;
-    private static final int LIST_Y = FILTER_Y + 42;
+    private static final int NOTE_Y = 25;
     /** 管理器的编辑页在设置页上方多一块头部，整个界面比覆盖板高。 */
     private static final int EDITOR_HEADER_H = 31;
     private static final int EDITOR_BUTTON_W = 40;
@@ -138,6 +136,15 @@ public final class WarpCoverGui extends CoverBaseGui<BaseWarpCover> {
     private static final int MATRIX_HEADER_Y = 20;
     private static final int MATRIX_ROW_H = 12;
     private static final int SWATCH = 11;
+    /** 配置面板里的名单区：一行控件，下面是两列三行的条目窗口，右侧上下翻。 */
+    private static final int CFG_FILTER_Y = 98;
+    private static final int FILTER_COLS = 2;
+    private static final int FILTER_ROWS = 3;
+    private static final int FILTER_ARROW_W = 12;
+    private static final int FILTER_CELL_W = (CFG_W - 16 - FILTER_ARROW_W - 2) / FILTER_COLS;
+    private static final int FILTER_HEADER_H = 18;
+    private static final int FILTER_LIST_Y = FILTER_HEADER_H + 3;
+    private static final int FILTER_BLOCK_H = FILTER_LIST_Y + FILTER_ROWS * ROW_H + 4;
     /** 频道页：顶部一行新增按钮、搜索框、标签筛选；列表项两行。 */
     private static final int CREATE_W = 50;
     private static final int TAG_FILTER_W = 46;
@@ -220,8 +227,7 @@ public final class WarpCoverGui extends CoverBaseGui<BaseWarpCover> {
                 controller,
                 GTGuiTextures.OVERLAY_BUTTON_SCREWDRIVER,
                 "warpcovers.gui.tab.settings",
-                () -> false)
-                .pos(0, sessions.size() * (TAB_SIZE + 2)));
+                () -> false).pos(0, sessions.size() * (TAB_SIZE + 2)));
 
         PagedWidget.Controller segments = new PagedWidget.Controller();
         ParentWidget<?> settings = new ParentWidget<>();
@@ -268,6 +274,48 @@ public final class WarpCoverGui extends CoverBaseGui<BaseWarpCover> {
             .defaultPanel("warpcovers_manager", ROOT_W + 14, MANAGER_ROOT_H + 14 + PLAYER_INVENTORY_H);
         panel.child(new WarpCoverGui(null).managerRoot(syncManager, player));
         return panel.bindPlayerInventory();
+    }
+
+    /**
+     * 自检用：配置面板和各弹窗平时只在客户端点击时才构建，构建期的错误（空指针、参数不合法）靠 JUnit 和服务端自检都发现不了。
+     * 这里在服务端把它们各构建一次；对象创建过程不涉及渲染，所以能在服务端跑。
+     *
+     * @param cover 覆盖板；传 null 表示按折跃频道管理器构建
+     * @param type  管理器要构建的频道类型；覆盖板忽略
+     */
+    public static void selfCheckBuildDialogs(BaseWarpCover cover, EntityPlayer player, ChannelType type,
+        String channelId) {
+        WarpCoverGui gui = new WarpCoverGui(cover);
+        PanelSyncManager sync = new PanelSyncManager(new ModularSyncManager(false), false);
+        boolean built = false;
+        if (cover == null) {
+            built = gui.buildDialogsForSelfCheck(gui.new Session(sync, player, type, "selfcheck_manager_"), channelId);
+        } else {
+            for (WarpPart part : cover.parts()) {
+                built |= gui.buildDialogsForSelfCheck(
+                    gui.new Session(sync, player, part, "selfcheck_" + part.channelType()
+                        .key() + "_", PAGE_H),
+                    channelId);
+            }
+        }
+        if (!built) {
+            throw new IllegalStateException("自检的频道不在任何会话的频道列表里: " + channelId);
+        }
+    }
+
+    /** @return 这个会话的类型里有该频道，面板已构建 */
+    private boolean buildDialogsForSelfCheck(Session session, String channelId) {
+        session.parsedView = PanelSnapshot.parseChannels(PanelSnapshot.channels(session.panel, session.viewer));
+        session.configChannelId = channelId;
+        if (session.configRow() == null) {
+            return false;
+        }
+        session.configPanel();
+        session.quickPanel();
+        session.tagPanel();
+        session.createDialogPanel();
+        session.deletePanel();
+        return true;
     }
 
     private IWidget managerRoot(PanelSyncManager syncManager, EntityPlayer player) {
@@ -414,6 +462,13 @@ public final class WarpCoverGui extends CoverBaseGui<BaseWarpCover> {
         private final NbtValue endpointsValue;
         private final NbtValue selectedValue;
         private int endpointPage;
+        /** 服务端：配置面板正在看哪个频道的名单；客户端打开配置面板时通知。 */
+        private String filterWatchId = "";
+        /** 配置面板名单窗口的滚动位置（行）。 */
+        private int filterScroll;
+        private NBTTagCompound parsedFilterRaw;
+        private String parsedFilterChannel = "";
+        private PanelSnapshot.FilterView parsedFilter;
         /** 管理器：切到连接端编辑页、返回频道页。 */
         private Runnable openEditor = () -> {};
         private Runnable closeEditor = () -> {};
@@ -423,7 +478,6 @@ public final class WarpCoverGui extends CoverBaseGui<BaseWarpCover> {
         private NBTTagCompound quickRaw;
         private FilterCandidates quickParsed = FilterCandidates.NONE;
         private final Set<String> quickSelected = new HashSet<>();
-        private boolean quickFromStored;
         private int quickPage;
         /** 物体图标缓存：图标每帧读取。 */
         private final Map<String, IDrawable> objectIcons = new HashMap<>();
@@ -471,7 +525,8 @@ public final class WarpCoverGui extends CoverBaseGui<BaseWarpCover> {
             channels = new NbtValue(() -> client ? new NBTTagCompound() : PanelSnapshot.channels(panel, viewer));
             recentValue = new NbtValue(() -> client ? new NBTTagCompound() : PanelSnapshot.recents(panel, viewer));
             sync.syncValue(syncPrefix + "recents", recentValue);
-            filter = new NbtValue(() -> client ? new NBTTagCompound() : PanelSnapshot.filter(endpoint.config()));
+            filter = new NbtValue(
+                () -> client ? new NBTTagCompound() : PanelSnapshot.filter(panel.hub(), viewer, filterWatchId));
             status = new NbtValue(
                 () -> client ? new NBTTagCompound()
                     : PanelSnapshot.status(
@@ -537,10 +592,6 @@ public final class WarpCoverGui extends CoverBaseGui<BaseWarpCover> {
                     panel.setState(viewer, state);
                 }
             });
-            action("whitelist", buf -> panel.setWhitelist(buf.readBoolean()));
-            action("matchnbt", buf -> panel.setMatchNbt(buf.readBoolean()));
-            action("remove", buf -> panel.removeFilterKey(NetworkUtils.readStringSafe(buf)));
-            action("clear", buf -> panel.clearFilter());
             if (manager) {
                 action("ep_list", buf -> listedChannelId = NetworkUtils.readStringSafe(buf));
                 action("ep_select", buf -> {
@@ -558,14 +609,6 @@ public final class WarpCoverGui extends CoverBaseGui<BaseWarpCover> {
                 });
             }
             action("quick_refresh", buf -> quickSnapshot = PanelSnapshot.candidates(panel.filterCandidates()));
-            action("quick_add", buf -> {
-                int count = buf.readInt();
-                List<String> keys = new ArrayList<>();
-                for (int i = 0; i < count; i++) {
-                    keys.add(NetworkUtils.readStringSafe(buf));
-                }
-                panel.addFilterKeys(keys);
-            });
             registerConfigActions();
             action("search", buf -> panel.setSearch(NetworkUtils.readStringSafe(buf)));
             action("tagfilter", buf -> panel.setTagFilter(NetworkUtils.readStringSafe(buf)));
@@ -753,6 +796,9 @@ public final class WarpCoverGui extends CoverBaseGui<BaseWarpCover> {
                         tooltip.addLine(row.note);
                     }
                     tooltip.addLine(tr("warpcovers.gui.row.counts_tip", row.inputs, row.outputs));
+                    if (row.hasFilter) {
+                        tooltip.addLine(filterSummary(row));
+                    }
                     if (showRecents) {
                         for (String key : recents(row.id)) {
                             tooltip.addLine(tr("warpcovers.gui.row.recent", objectLabel(key)));
@@ -809,11 +855,22 @@ public final class WarpCoverGui extends CoverBaseGui<BaseWarpCover> {
             StringBuilder text = new StringBuilder(row.ownerName);
             text.append("  ")
                 .append(tr("warpcovers.gui.row.counts", row.inputs, row.outputs));
+            if (row.hasFilter) {
+                text.append("  ")
+                    .append(filterSummary(row));
+            }
             for (String tag : row.tags) {
                 text.append("  #")
                     .append(tag);
             }
             return text.toString();
+        }
+
+        /** 频道名单的概要，如「黑名单·空（全部放行）」「白名单·3 项」，让玩家在频道页就知道名单存在。 */
+        private String filterSummary(PanelSnapshot.ChannelRow row) {
+            String mode = row.filterWhitelist ? "white" : "black";
+            return row.filterCount == 0 ? tr("warpcovers.gui.filter.summary." + mode + "_empty")
+                : tr("warpcovers.gui.filter.summary." + mode, row.filterCount);
         }
 
         private List<String> recents(String channelId) {
@@ -1120,6 +1177,57 @@ public final class WarpCoverGui extends CoverBaseGui<BaseWarpCover> {
                 report(a -> a.setCreateAllowed(viewer, id, who, allowed));
             });
             action("cfg_delete", buf -> report(a -> a.delete(viewer, NetworkUtils.readStringSafe(buf))));
+            registerFilterActions();
+        }
+
+        /** 频道过滤名单的请求：都带频道 ID，权限（修改配置）和能量没有名单都由 {@link ChannelAdmin} 判断。 */
+        private void registerFilterActions() {
+            action("cfg_watch", buf -> filterWatchId = NetworkUtils.readStringSafe(buf));
+            action("flt_mode", buf -> {
+                String id = NetworkUtils.readStringSafe(buf);
+                boolean whitelist = buf.readBoolean();
+                report(a -> a.setFilterWhitelist(viewer, id, whitelist));
+            });
+            action("flt_nbt", buf -> {
+                String id = NetworkUtils.readStringSafe(buf);
+                boolean matchNbt = buf.readBoolean();
+                report(a -> a.setFilterMatchNbt(viewer, id, matchNbt));
+            });
+            action("flt_remove", buf -> {
+                String id = NetworkUtils.readStringSafe(buf);
+                String key = NetworkUtils.readStringSafe(buf);
+                report(a -> a.removeFilterKey(viewer, id, key));
+            });
+            action("flt_clear", buf -> report(a -> a.clearFilter(viewer, NetworkUtils.readStringSafe(buf))));
+            action("flt_add", buf -> {
+                String id = NetworkUtils.readStringSafe(buf);
+                List<String> keys = new ArrayList<>();
+                int count = buf.readInt();
+                for (int i = 0; i < count && i < CoverPanel.MAX_FILTER_CANDIDATES; i++) {
+                    String key = NetworkUtils.readStringSafe(buf);
+                    if (isKnownKey(id, key)) {
+                        keys.add(key);
+                    }
+                }
+                report(a -> a.addFilterKeys(viewer, id, keys));
+            });
+        }
+
+        /** 客户端传来的名单键是否是这个频道能认出的物品或流体；认不出的丢弃，免得名单里堆无效项。 */
+        private boolean isKnownKey(String channelId, String key) {
+            Channel channel = panel.hub()
+                .findChannel(channelId);
+            if (channel == null || key == null || key.isEmpty()) {
+                return false;
+            }
+            switch (channel.type()) {
+                case ITEM:
+                    return ItemKeys.prototype(key) != null;
+                case FLUID:
+                    return FluidRegistry.getFluid(key) != null;
+                default:
+                    return false;
+            }
         }
 
         private void report(Function<ChannelAdmin, PanelNotice> operation) {
@@ -1150,6 +1258,10 @@ public final class WarpCoverGui extends CoverBaseGui<BaseWarpCover> {
             configChannelId = channelId;
             configActed = false;
             configLocalError = "";
+            filterScroll = 0;
+            if (type.hasFilter()) {
+                send("cfg_watch", buf -> NetworkUtils.writeStringSafe(buf, channelId));
+            }
             if (manager) {
                 endpointPage = 0;
                 send("ep_list", buf -> NetworkUtils.writeStringSafe(buf, channelId));
@@ -1162,9 +1274,12 @@ public final class WarpCoverGui extends CoverBaseGui<BaseWarpCover> {
             Dialog<Boolean> dialog = new Dialog<>(syncPrefix + "channel_config");
             dialog.setDraggable(false);
             dialog.setCloseOnOutOfBoundsClick(true);
-            dialog.size(CFG_W, manager ? CFG_H + ENDPOINT_LIST_H : CFG_H);
-            // 删除确认弹窗挂在配置面板上，配置面板每次打开都是新对象，要跟着重建
+            // 名单区只有流体和物品频道有，它把下面的反馈、按钮和管理器的连接端列表都往下推
+            int extra = type.hasFilter() ? FILTER_BLOCK_H : 0;
+            dialog.size(CFG_W, CFG_H + extra + (manager ? ENDPOINT_LIST_H : 0));
+            // 删除确认和名单快捷配置弹窗挂在配置面板上，配置面板每次打开都是新对象，要跟着重建
             deleteDialog = null;
+            quickDialog = null;
             PanelSnapshot.ChannelRow row = configRow();
             if (row == null) {
                 return dialog;
@@ -1207,17 +1322,20 @@ public final class WarpCoverGui extends CoverBaseGui<BaseWarpCover> {
                         .color(OWNER_COLOR));
             }
             addPermissionMatrix(dialog, row);
+            if (type.hasFilter()) {
+                addFilterBlock(dialog, row);
+            }
 
             dialog.child(
                 IKey.dynamic(this::configFeedback)
                     .asWidget()
-                    .pos(8, 100)
+                    .pos(8, 100 + extra)
                     .size(CFG_W - 16, 9)
                     .color(() -> configFeedbackIsError() ? ERROR_COLOR : TEXT_COLOR));
 
             if (row.canDelete) {
                 ButtonWidget<?> delete = new ButtonWidget<>();
-                delete.pos(8, 113)
+                delete.pos(8, 113 + extra)
                     .size(70, 14)
                     .overlay(
                         IKey.lang("warpcovers.gui.config.delete")
@@ -1229,7 +1347,7 @@ public final class WarpCoverGui extends CoverBaseGui<BaseWarpCover> {
                 dialog.child(delete);
             }
             ButtonWidget<?> close = new ButtonWidget<>();
-            close.pos(CFG_W - 78, 113)
+            close.pos(CFG_W - 78, 113 + extra)
                 .size(70, 14)
                 .overlay(
                     IKey.lang("warpcovers.gui.config.close")
@@ -1240,7 +1358,7 @@ public final class WarpCoverGui extends CoverBaseGui<BaseWarpCover> {
             });
             dialog.child(close);
             if (manager) {
-                addEndpointList(dialog);
+                addEndpointList(dialog, extra);
             }
             return dialog;
         }
@@ -1531,100 +1649,16 @@ public final class WarpCoverGui extends CoverBaseGui<BaseWarpCover> {
             if (!type.hasFilter()) {
                 return energyNotes(page);
             }
-
-            ButtonWidget<?> mode = new ButtonWidget<>();
-            mode.pos(0, FILTER_Y)
-                .size(16, 16)
-                .overlay(
-                    new DynamicDrawable(
-                        () -> isWhitelist() ? GTGuiTextures.OVERLAY_BUTTON_WHITELIST
-                            : GTGuiTextures.OVERLAY_BUTTON_BLACKLIST))
-                .addTooltipLine(tr("warpcovers.gui.filter.toggle"));
-            mode.onMousePressed(mouse -> {
-                boolean next = !isWhitelist();
-                send("whitelist", buf -> buf.writeBoolean(next));
-                return true;
-            });
-            page.child(mode);
-            page.child(
-                IKey.dynamic(
-                    () -> tr(isWhitelist() ? "warpcovers.gui.filter.whitelist" : "warpcovers.gui.filter.blacklist"))
-                    .asWidget()
-                    .pos(20, FILTER_Y + 4)
-                    .size(PAGE_W - 44, 9)
-                    .color(TEXT_COLOR));
-
-            ButtonWidget<?> clear = new ButtonWidget<>();
-            clear.pos(PAGE_W - 18, FILTER_Y)
-                .size(16, 16)
-                .overlay(GTGuiTextures.OVERLAY_BUTTON_CROSS)
-                .addTooltipLine(tr("warpcovers.gui.filter.clear"));
-            clear.onMousePressed(mouse -> {
-                send("clear", buf -> {});
-                return true;
-            });
-            page.child(clear);
-
-            Consumer<String> addKey = client ? null : key -> panel.addFilterKey(key);
-            if (isItem()) {
-                ButtonWidget<?> nbt = new ButtonWidget<>();
-                nbt.pos(PAGE_W - 38, FILTER_Y)
-                    .size(16, 16)
-                    .background(
-                        new DynamicDrawable(
-                            () -> isMatchNbt() ? GTGuiTextures.BUTTON_STANDARD_PRESSED : GTGuiTextures.BUTTON_STANDARD))
-                    .overlay(GTGuiTextures.OVERLAY_BUTTON_NBT)
-                    .tooltipDynamic(
-                        tooltip -> tooltip.addLine(
-                            tr(isMatchNbt() ? "warpcovers.gui.filter.nbt_on" : "warpcovers.gui.filter.nbt_off")))
-                    .tooltipAutoUpdate(true);
-                nbt.onMousePressed(mouse -> {
-                    boolean next = !isMatchNbt();
-                    send("matchnbt", buf -> buf.writeBoolean(next));
-                    return true;
-                });
-                page.child(nbt);
-
-                PhantomItemSlot slot = new PhantomItemSlot().slot(new ModularSlot(new FilterInputInventory(addKey), 0));
-                slot.pos(0, FILTER_Y + 20)
-                    .addTooltipLine(tr("warpcovers.gui.filter.add_item"));
-                page.child(slot);
-            } else {
-                FilterInputTank tank = new FilterInputTank(addKey);
-                FluidSlot slot = new FluidSlot();
-                slot.syncHandler(
-                    new FluidSlotSyncHandler(tank).phantom(true)
-                        .controlsAmount(false))
-                    .pos(0, FILTER_Y + 20)
-                    .addTooltipLine(tr("warpcovers.gui.filter.add"));
-                page.child(slot);
+            if (!manager) {
+                // 名单属于频道，不在设置页里：提示去哪改，免得玩家以为名单没了
+                page.child(
+                    IKey.lang("warpcovers.gui.settings.filter_hint")
+                        .asWidget()
+                        .alignment(Alignment.TopLeft)
+                        .pos(0, NOTE_Y + 2)
+                        .size(PAGE_W - 2, 30)
+                        .color(OWNER_COLOR));
             }
-            page.child(
-                IKey.lang(isItem() ? "warpcovers.gui.filter.hint_item" : "warpcovers.gui.filter.hint")
-                    .asWidget()
-                    .pos(22, FILTER_Y + 25)
-                    .size(PAGE_W - 24 - QUICK_BUTTON_W, 9)
-                    .color(OWNER_COLOR));
-            ButtonWidget<?> quick = new ButtonWidget<>();
-            quick.pos(PAGE_W - QUICK_BUTTON_W - 2, FILTER_Y + 20)
-                .size(QUICK_BUTTON_W, 16)
-                .overlay(
-                    IKey.lang("warpcovers.gui.quick.open")
-                        .color(BUTTON_TEXT))
-                .addTooltipLine(tr("warpcovers.gui.quick.open_tip"));
-            quick.onMousePressed(mouse -> {
-                openQuickDialog(quick);
-                return true;
-            });
-            page.child(quick);
-
-            DynamicLinkedSyncHandler<NbtValue> dynamic = new DynamicLinkedSyncHandler<>(filter)
-                .widgetProvider((manager, value) -> filterList(PanelSnapshot.parseFilter(value.getValue())));
-            DynamicSyncedWidget<?> holder = new DynamicSyncedWidget<>();
-            holder.syncHandler(dynamic)
-                .pos(0, LIST_Y)
-                .size(PAGE_W, settingsH - LIST_Y);
-            page.child(holder);
             return page;
         }
 
@@ -1726,8 +1760,8 @@ public final class WarpCoverGui extends CoverBaseGui<BaseWarpCover> {
                 tr(row.loaded ? "warpcovers.gui.endpoint.loaded" : "warpcovers.gui.endpoint.unloaded"));
         }
 
-        private void addEndpointList(Dialog<Boolean> dialog) {
-            int y = CFG_H - 2;
+        private void addEndpointList(Dialog<Boolean> dialog, int extra) {
+            int y = CFG_H + extra - 2;
             dialog.child(
                 IKey.dynamic(() -> tr("warpcovers.gui.endpoint.title", endpointRows().size()))
                     .asWidget()
@@ -1897,7 +1931,6 @@ public final class WarpCoverGui extends CoverBaseGui<BaseWarpCover> {
             // 候选只在打开时汇总一次：既不用每 tick 扫描机器，勾选途中列表也不会跳动
             send("quick_refresh", buf -> {});
             quickSelected.clear();
-            quickFromStored = false;
             quickPage = 0;
             quickDialog.deleteCachedPanel();
             quickDialog.openPanel();
@@ -1914,7 +1947,7 @@ public final class WarpCoverGui extends CoverBaseGui<BaseWarpCover> {
 
         private List<String> quickKeys() {
             FilterCandidates candidates = quickCandidates();
-            return quickFromStored ? candidates.stored() : candidates.peers();
+            return candidates.stored();
         }
 
         private int quickPageCount() {
@@ -1934,10 +1967,8 @@ public final class WarpCoverGui extends CoverBaseGui<BaseWarpCover> {
             FilterCandidates candidates = quickCandidates();
             List<String> chosen = new ArrayList<>();
             for (String key : quickSelected) {
-                if (candidates.peers()
-                    .contains(key)
-                    || candidates.stored()
-                        .contains(key)) {
+                if (candidates.stored()
+                    .contains(key)) {
                     chosen.add(key);
                 }
             }
@@ -1955,8 +1986,7 @@ public final class WarpCoverGui extends CoverBaseGui<BaseWarpCover> {
                     .pos(8, 7)
                     .size(156, 9)
                     .color(0xFF222222));
-            addQuickTab(dialog, 8, false);
-            addQuickTab(dialog, 87, true);
+            addQuickTab(dialog, 8);
 
             // 选中用亮绿底加绿框：流体图标铺满整格会盖住底色，所以框要画在图标上面
             IDrawable selectedMark = new Rectangle().color(0xFF40D040);
@@ -2061,7 +2091,7 @@ public final class WarpCoverGui extends CoverBaseGui<BaseWarpCover> {
             confirm.onMousePressed(mouse -> {
                 List<String> chosen = quickChosen();
                 if (!chosen.isEmpty()) {
-                    send("quick_add", buf -> {
+                    sendConfig("flt_add", buf -> {
                         buf.writeInt(chosen.size());
                         for (String key : chosen) {
                             NetworkUtils.writeStringSafe(buf, key);
@@ -2086,24 +2116,20 @@ public final class WarpCoverGui extends CoverBaseGui<BaseWarpCover> {
             return dialog;
         }
 
-        private void addQuickTab(Dialog<Boolean> dialog, int x, boolean stored) {
+        private void addQuickTab(Dialog<Boolean> dialog, int x) {
             ButtonWidget<?> tab = new ButtonWidget<>();
             tab.pos(x, 18)
                 .size(77, 14)
-                .background(
-                    new DynamicDrawable(
-                        () -> quickFromStored == stored ? GTGuiTextures.BUTTON_STANDARD_PRESSED
-                            : GTGuiTextures.BUTTON_STANDARD))
-                .overlay(IKey.dynamic(() -> {
-                    FilterCandidates candidates = quickCandidates();
-                    return tr(
-                        stored ? "warpcovers.gui.quick.stored" : "warpcovers.gui.quick.peers",
-                        (stored ? candidates.stored() : candidates.peers()).size());
-                })
-                    .color(BUTTON_TEXT))
-                .addTooltipLine(tr(stored ? "warpcovers.gui.quick.stored_tip" : "warpcovers.gui.quick.peers_tip"));
+                .background(new DynamicDrawable(() -> GTGuiTextures.BUTTON_STANDARD_PRESSED))
+                .overlay(
+                    IKey.dynamic(
+                        () -> tr(
+                            "warpcovers.gui.quick.stored",
+                            quickCandidates().stored()
+                                .size()))
+                        .color(BUTTON_TEXT))
+                .addTooltipLine(tr("warpcovers.gui.quick.stored_tip"));
             tab.onMousePressed(mouse -> {
-                quickFromStored = stored;
                 quickPage = 0;
                 return true;
             });
@@ -2114,24 +2140,249 @@ public final class WarpCoverGui extends CoverBaseGui<BaseWarpCover> {
             if (!quickKeys().isEmpty()) {
                 return "";
             }
-            return tr(quickFromStored ? "warpcovers.gui.quick.stored_empty" : "warpcovers.gui.quick.peers_empty");
+            return tr("warpcovers.gui.quick.stored_empty");
         }
 
-        private IWidget filterList(PanelSnapshot.FilterView view) {
-            ListWidget<IWidget, ?> list = new ListWidget<>();
-            list.size(PAGE_W, settingsH - LIST_Y);
-            if (view.keys.isEmpty()) {
-                list.child(
-                    IKey.lang("warpcovers.gui.filter.empty")
-                        .asWidget()
-                        .size(ROW_W, ROW_H)
-                        .color(OWNER_COLOR));
-                return list;
+        // ---- 配置面板里的名单区 ----
+
+        /** 配置面板正在看的频道的名单；快照还没切到这个频道时是默认的空黑名单。 */
+        private PanelSnapshot.FilterView filterView() {
+            NBTTagCompound raw = filter.getValue();
+            if (parsedFilter == null || raw != parsedFilterRaw || !configChannelId.equals(parsedFilterChannel)) {
+                parsedFilterRaw = raw;
+                parsedFilterChannel = configChannelId;
+                parsedFilter = PanelSnapshot.parseFilter(raw, configChannelId);
             }
-            for (String key : view.keys) {
-                list.child(filterRow(key));
+            return parsedFilter;
+        }
+
+        private int filterMaxScroll() {
+            int rows = (filterView().keys.size() + FILTER_COLS - 1) / FILTER_COLS;
+            return Math.max(0, rows - FILTER_ROWS);
+        }
+
+        private void scrollFilter(int delta) {
+            int max = filterMaxScroll();
+            filterScroll = Math.max(0, Math.min(max, Math.min(filterScroll, max) + delta));
+        }
+
+        /** 窗口里第 slot 格的名单键；没有时为 null。 */
+        private String filterKeyAt(int slot) {
+            List<String> keys = filterView().keys;
+            int index = Math.min(filterScroll, filterMaxScroll()) * FILTER_COLS + slot;
+            return index < keys.size() ? keys.get(index) : null;
+        }
+
+        /**
+         * 名单区：黑白切换、添加区、快捷、匹配 NBT、清空，下面是条目。没有「修改配置」权限的人只能看，
+         * 添加区、快捷、清空和移除都不出现，黑白与 NBT 开关只显示状态、点了没有反应（服务端也会拒绝）。
+         */
+        private void addFilterBlock(Dialog<Boolean> dialog, PanelSnapshot.ChannelRow row) {
+            boolean edit = row.canConfigure;
+            int y = CFG_FILTER_Y;
+            int right = CFG_W - 8;
+
+            ButtonWidget<?> mode = new ButtonWidget<>();
+            mode.pos(8, y)
+                .size(16, 16)
+                .overlay(
+                    new DynamicDrawable(
+                        () -> filterView().whitelist ? GTGuiTextures.OVERLAY_BUTTON_WHITELIST
+                            : GTGuiTextures.OVERLAY_BUTTON_BLACKLIST))
+                .tooltipDynamic(tooltip -> {
+                    tooltip.addLine(
+                        tr(
+                            filterView().whitelist ? "warpcovers.gui.filter.whitelist"
+                                : "warpcovers.gui.filter.blacklist"));
+                    tooltip.addLine(tr("warpcovers.gui.filter.shared"));
+                    tooltip.addLine(tr(edit ? "warpcovers.gui.filter.toggle" : "warpcovers.gui.filter.read_only"));
+                })
+                .tooltipAutoUpdate(true);
+            mode.onMousePressed(mouse -> {
+                if (edit) {
+                    boolean next = !filterView().whitelist;
+                    sendConfig("flt_mode", buf -> buf.writeBoolean(next));
+                }
+                return true;
+            });
+            dialog.child(mode);
+            dialog.child(
+                IKey.dynamic(
+                    () -> tr(
+                        filterView().whitelist ? "warpcovers.gui.filter.mode_white"
+                            : "warpcovers.gui.filter.mode_black"))
+                    .asWidget()
+                    .pos(27, y + 4)
+                    .size(38, 9)
+                    .color(0xFF222222));
+
+            if (isItem()) {
+                ButtonWidget<?> nbt = new ButtonWidget<>();
+                nbt.pos(right - 38, y)
+                    .size(16, 16)
+                    .background(
+                        new DynamicDrawable(
+                            () -> filterView().matchNbt ? GTGuiTextures.BUTTON_STANDARD_PRESSED
+                                : GTGuiTextures.BUTTON_STANDARD))
+                    .overlay(GTGuiTextures.OVERLAY_BUTTON_NBT)
+                    .tooltipDynamic(
+                        tooltip -> tooltip.addLine(
+                            tr(
+                                filterView().matchNbt ? "warpcovers.gui.filter.nbt_on"
+                                    : "warpcovers.gui.filter.nbt_off")))
+                    .tooltipAutoUpdate(true);
+                nbt.onMousePressed(mouse -> {
+                    if (edit) {
+                        boolean next = !filterView().matchNbt;
+                        sendConfig("flt_nbt", buf -> buf.writeBoolean(next));
+                    }
+                    return true;
+                });
+                dialog.child(nbt);
             }
-            return list;
+
+            if (edit) {
+                addFilterEditControls(dialog, y, right);
+            }
+
+            ScrollArea area = new ScrollArea(this::scrollFilter);
+            area.pos(8, y + FILTER_LIST_Y)
+                .size(FILTER_COLS * FILTER_CELL_W, FILTER_ROWS * ROW_H);
+            for (int i = 0; i < FILTER_COLS * FILTER_ROWS; i++) {
+                area.child(filterCell(i, edit, (i % FILTER_COLS) * FILTER_CELL_W, (i / FILTER_COLS) * ROW_H));
+            }
+            area.child(IKey.dynamic(() -> {
+                PanelSnapshot.FilterView view = filterView();
+                if (!view.keys.isEmpty()) {
+                    return "";
+                }
+                return tr(view.whitelist ? "warpcovers.gui.filter.empty_white" : "warpcovers.gui.filter.empty_black");
+            })
+                .asWidget()
+                .pos(2, 3)
+                .size(FILTER_COLS * FILTER_CELL_W - 4, 9)
+                .color(OWNER_COLOR));
+            dialog.child(area);
+
+            addFilterArrow(dialog, y + FILTER_LIST_Y, "^", -1, "warpcovers.gui.filter.scroll_up");
+            addFilterArrow(
+                dialog,
+                y + FILTER_LIST_Y + FILTER_ROWS * ROW_H - FILTER_ARROW_W,
+                "v",
+                1,
+                "warpcovers.gui.filter.scroll_down");
+        }
+
+        /** 添加区、快捷、清空：只给有「修改配置」权限的人。 */
+        private void addFilterEditControls(Dialog<Boolean> dialog, int y, int right) {
+            Consumer<String> add = key -> sendConfig("flt_add", buf -> {
+                buf.writeInt(1);
+                NetworkUtils.writeStringSafe(buf, key);
+            });
+            FilterDropSlot drop = new FilterDropSlot(
+                isItem() ? FilterDropSlot::itemKey : FilterDropSlot::fluidKey,
+                add);
+            drop.pos(66, y - 1)
+                .size(18, 18)
+                .background(isItem() ? GuiTextures.SLOT_ITEM : GuiTextures.SLOT_FLUID)
+                .overlay(
+                    IKey.str("+")
+                        .color(OWNER_COLOR))
+                .addTooltipLine(tr(isItem() ? "warpcovers.gui.filter.add_item" : "warpcovers.gui.filter.add"));
+            dialog.child(drop);
+            int quickX = right - 38 - QUICK_BUTTON_W - 2;
+            dialog.child(
+                IKey.lang(isItem() ? "warpcovers.gui.filter.hint_item" : "warpcovers.gui.filter.hint")
+                    .asWidget()
+                    .pos(88, y + 4)
+                    .size(quickX - 90, 9)
+                    .color(OWNER_COLOR));
+
+            if (!manager) {
+                // 候选来自这台机器，所以只有覆盖板当前连着的频道才有快捷配置
+                ButtonWidget<?> quick = new ButtonWidget<>();
+                quick.pos(quickX, y)
+                    .size(QUICK_BUTTON_W, 16)
+                    .overlay(
+                        IKey.lang("warpcovers.gui.quick.open")
+                            .color(BUTTON_TEXT))
+                    .addTooltipLine(tr("warpcovers.gui.quick.open_tip"))
+                    .setEnabledIf(w -> channelsView().isConnected(configChannelId));
+                quick.onMousePressed(mouse -> {
+                    openQuickDialog(quick);
+                    return true;
+                });
+                dialog.child(quick);
+            }
+
+            ButtonWidget<?> clear = new ButtonWidget<>();
+            clear.pos(right - 16, y)
+                .size(16, 16)
+                .overlay(GTGuiTextures.OVERLAY_BUTTON_CROSS)
+                .addTooltipLine(tr("warpcovers.gui.filter.clear"));
+            clear.onMousePressed(mouse -> {
+                sendConfig("flt_clear", buf -> {});
+                return true;
+            });
+            dialog.child(clear);
+        }
+
+        private void addFilterArrow(Dialog<Boolean> dialog, int y, String label, int delta, String tipKey) {
+            ButtonWidget<?> arrow = new ButtonWidget<>();
+            arrow.pos(CFG_W - 8 - FILTER_ARROW_W, y)
+                .size(FILTER_ARROW_W, FILTER_ARROW_W)
+                .overlay(
+                    IKey.str(label)
+                        .color(BUTTON_TEXT))
+                .addTooltipLine(tr(tipKey));
+            arrow.onMousePressed(mouse -> {
+                scrollFilter(delta);
+                return true;
+            });
+            dialog.child(arrow);
+        }
+
+        /** 窗口里的一格：图标、名称，有权限时还有移除按钮；没有条目时整格隐藏。 */
+        private IWidget filterCell(int slot, boolean edit, int x, int y) {
+            ParentWidget<?> cell = new ParentWidget<>();
+            cell.pos(x, y)
+                .size(FILTER_CELL_W - 2, ROW_H)
+                .setEnabledIf(w -> filterKeyAt(slot) != null);
+            cell.child(new DynamicDrawable(() -> {
+                String key = filterKeyAt(slot);
+                return key == null ? IDrawable.EMPTY : objectIcons.computeIfAbsent(key, this::objectIcon);
+            }).asWidget()
+                .pos(1, 1)
+                .size(12, 12)
+                .tooltipDynamic(tooltip -> {
+                    String key = filterKeyAt(slot);
+                    if (key != null) {
+                        tooltip.addLine(objectLabel(key));
+                    }
+                })
+                .tooltipAutoUpdate(true));
+            cell.child(new ScrollingTextWidget(IKey.dynamic(() -> {
+                String key = filterKeyAt(slot);
+                return key == null ? "" : objectLabel(key);
+            })).pos(16, 3)
+                .size(FILTER_CELL_W - 2 - (edit ? 32 : 18), 8)
+                .color(TEXT_COLOR));
+            if (edit) {
+                ButtonWidget<?> remove = new ButtonWidget<>();
+                remove.pos(FILTER_CELL_W - 2 - 14, 1)
+                    .size(12, 12)
+                    .overlay(GuiTextures.CLOSE)
+                    .addTooltipLine(tr("warpcovers.gui.filter.remove"));
+                remove.onMousePressed(mouse -> {
+                    String key = filterKeyAt(slot);
+                    if (key != null) {
+                        sendConfig("flt_remove", buf -> NetworkUtils.writeStringSafe(buf, key));
+                    }
+                    return true;
+                });
+                cell.child(remove);
+            }
+            return cell;
         }
 
         private IDrawable objectIcon(String key) {
@@ -2150,34 +2401,6 @@ public final class WarpCoverGui extends CoverBaseGui<BaseWarpCover> {
             }
             Fluid fluid = FluidRegistry.getFluid(key);
             return fluid == null ? key : new FluidStack(fluid, 1000).getLocalizedName();
-        }
-
-        private IWidget filterRow(String key) {
-            IDrawable icon = objectIcon(key);
-            String label = objectLabel(key);
-
-            ParentWidget<?> row = new ParentWidget<>();
-            row.size(ROW_W, ROW_H);
-            row.child(
-                icon.asWidget()
-                    .pos(1, 1)
-                    .size(12, 12)
-                    .addTooltipLine(label));
-            row.child(
-                new ScrollingTextWidget(IKey.str(label)).pos(16, 3)
-                    .size(ROW_W - 34, 8)
-                    .color(TEXT_COLOR));
-            ButtonWidget<?> remove = new ButtonWidget<>();
-            remove.pos(ROW_W - 14, 1)
-                .size(12, 12)
-                .overlay(GuiTextures.CLOSE)
-                .addTooltipLine(tr("warpcovers.gui.filter.remove"));
-            remove.onMousePressed(mouse -> {
-                send("remove", buf -> NetworkUtils.writeStringSafe(buf, key));
-                return true;
-            });
-            row.child(remove);
-            return row;
         }
 
         // ---- 状态栏 ----
@@ -2205,9 +2428,6 @@ public final class WarpCoverGui extends CoverBaseGui<BaseWarpCover> {
             if (view.status == EndpointStatus.FILTERED) {
                 return tr("warpcovers.hint.filtered");
             }
-            if (view.status == EndpointStatus.PEER_FILTERED) {
-                return tr("warpcovers.hint.filtered_peer");
-            }
             return "";
         }
 
@@ -2216,20 +2436,12 @@ public final class WarpCoverGui extends CoverBaseGui<BaseWarpCover> {
             return !view.noticeKey.isEmpty() ? view.noticeError : view.reason != null;
         }
 
-        private boolean isWhitelist() {
-            return PanelSnapshot.parseFilter(filter.getValue()).whitelist;
-        }
-
-        private boolean isMatchNbt() {
-            return PanelSnapshot.parseFilter(filter.getValue()).matchNbt;
-        }
-
         /** 能量没有过滤名单：设置页只说明直灌规则。 */
         private IWidget energyNotes(ParentWidget<?> page) {
             String[] keys = { "warpcovers.gui.energy.no_filter", "warpcovers.gui.energy.direct",
                 "warpcovers.gui.energy.source" };
             int[] heights = { 10, 30, 30 };
-            int y = FILTER_Y + 2;
+            int y = NOTE_Y + 2;
             for (int i = 0; i < keys.length; i++) {
                 page.child(
                     IKey.lang(keys[i])

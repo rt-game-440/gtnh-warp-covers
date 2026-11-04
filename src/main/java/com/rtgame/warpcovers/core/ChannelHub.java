@@ -245,6 +245,81 @@ public final class ChannelHub {
         }
     }
 
+    // ---- 过滤名单（权限由调用方检查；名单属于频道，见 ADR-0004） ----
+
+    /** 切换黑白名单。频道不存在或没有名单（能量）返回 false。 */
+    public boolean setFilterWhitelist(String channelId, boolean whitelist) {
+        Channel channel = filterChannel(channelId);
+        if (channel == null) {
+            return false;
+        }
+        if (channel.filter()
+            .isWhitelist() != whitelist) {
+            channel.filter()
+                .setWhitelist(whitelist);
+            markDirty();
+        }
+        return true;
+    }
+
+    public boolean setFilterMatchNbt(String channelId, boolean matchNbt) {
+        Channel channel = filterChannel(channelId);
+        if (channel == null) {
+            return false;
+        }
+        if (channel.filter()
+            .matchNbt() != matchNbt) {
+            channel.filter()
+                .setMatchNbt(matchNbt);
+            markDirty();
+        }
+        return true;
+    }
+
+    /** @return 实际加入（原来不在名单里） */
+    public boolean addFilterKey(String channelId, String key) {
+        Channel channel = filterChannel(channelId);
+        if (channel == null || key == null || key.isEmpty()) {
+            return false;
+        }
+        boolean added = channel.filter()
+            .add(key);
+        if (added) {
+            markDirty();
+        }
+        return added;
+    }
+
+    public boolean removeFilterKey(String channelId, String key) {
+        Channel channel = filterChannel(channelId);
+        if (channel == null) {
+            return false;
+        }
+        boolean removed = channel.filter()
+            .remove(key);
+        if (removed) {
+            markDirty();
+        }
+        return removed;
+    }
+
+    public void clearFilter(String channelId) {
+        Channel channel = filterChannel(channelId);
+        if (channel != null && !channel.filter()
+            .keys()
+            .isEmpty()) {
+            channel.filter()
+                .clear();
+            markDirty();
+        }
+    }
+
+    private Channel filterChannel(String channelId) {
+        Channel channel = channels.get(channelId);
+        return channel != null && channel.type()
+            .hasFilter() ? channel : null;
+    }
+
     private static void notifyEndpoints(Channel channel) {
         for (Endpoint endpoint : channel.endpoints()) {
             EndpointHost host = endpoint.host();
@@ -630,10 +705,17 @@ public final class ChannelHub {
 
     public void restoreChannel(String id, ChannelType type, String name, int color, String ownerId, String ownerName,
         DistributionMode distribution, ChannelPermissions permissions, String note) {
+        restoreChannel(id, type, name, color, ownerId, ownerName, distribution, permissions, note, null);
+    }
+
+    /** @param filter 频道的过滤名单；旧存档没有时传 null，读成默认名单（空黑名单） */
+    public void restoreChannel(String id, ChannelType type, String name, int color, String ownerId, String ownerName,
+        DistributionMode distribution, ChannelPermissions permissions, String note, FilterList filter) {
         Channel channel = new Channel(id, type, name, color, ownerId, ownerName);
         channel.setDistribution(distribution);
         channel.setPermissions(permissions);
         channel.setNote(note);
+        channel.setFilter(filter);
         channels.put(id, channel);
     }
 
@@ -647,7 +729,7 @@ public final class ChannelHub {
 
     /**
      * 恢复一条索引，带上保存时的配置副本。覆盖板是配置的权威，加载时会用自己的配置替换；
-     * 在那之前这份副本让别的连接端也能读到未加载连接端的名单。
+     * 在那之前这份副本让未加载连接端也保有交互状态、优先级等。
      */
     public void restoreEndpoint(String endpointId, String channelId, long connectOrder, Location location,
         String connector, String machineName, EndpointConfig restored) {
@@ -713,8 +795,7 @@ public final class ChannelHub {
         long transferred = 0;
         long lost = 0;
         boolean anyOffered = false;
-        boolean anyAllowedBySelf = false;
-        boolean anyAllowedByPeer = false;
+        boolean anyAllowed = false;
         for (ObjectStack offered : input.port()
             .extractable()) {
             if (quota <= 0) {
@@ -724,13 +805,10 @@ public final class ChannelHub {
                 continue;
             }
             anyOffered = true;
-            if (!allows(input, offered.key())) {
+            if (!channel.allows(offered.key())) {
                 continue;
             }
-            anyAllowedBySelf = true;
-            if (anyAllows(outputs, offered.key())) {
-                anyAllowedByPeer = true;
-            }
+            anyAllowed = true;
             TransferResult moved = delivery.moveKey(offered.key(), Math.min(offered.amount(), quota));
             transferred += moved.transferred();
             lost += moved.lost();
@@ -745,10 +823,8 @@ public final class ChannelHub {
             status = EndpointStatus.TRANSFERRING;
         } else if (!anyOffered) {
             status = EndpointStatus.SOURCE_EMPTY;
-        } else if (!anyAllowedBySelf) {
+        } else if (!anyAllowed) {
             status = EndpointStatus.FILTERED;
-        } else if (!anyAllowedByPeer) {
-            status = EndpointStatus.PEER_FILTERED;
         } else if (delivery.windowLimited) {
             // 输出端本窗口的额度用完了，下个窗口还会继续收
             status = EndpointStatus.WAITING;
@@ -767,26 +843,6 @@ public final class ChannelHub {
     /** 该配置的实际速率（每周期最多搬运多少）；{@link Long#MAX_VALUE} 表示不限。 */
     public long effectiveRate(ChannelType type, EndpointConfig endpointConfig) {
         return Periods.effectiveRate(endpointConfig.rate(), config.globalRateCap(type));
-    }
-
-    private boolean anyAllows(List<Endpoint> outputs, String key) {
-        for (Endpoint output : outputs) {
-            if (allows(output, key)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    /** 名单是否放行；没有名单的频道类型（能量）一律放行。 */
-    private boolean allows(Endpoint endpoint, String key) {
-        Channel channel = channels.get(endpoint.channelId());
-        if (channel != null && !channel.type()
-            .hasFilter()) {
-            return true;
-        }
-        return endpoint.filter()
-            .allows(key);
     }
 
     /**
@@ -939,12 +995,8 @@ public final class ChannelHub {
             return new TransferResult(moved, lost);
         }
 
-        /** 这个输出端这次最多收多少：名单、自身窗口额度、机器模拟插入三者取小。 */
+        /** 这个输出端这次最多收多少：自身窗口额度、机器模拟插入取小（名单在输入端抽取时已按频道名单过滤）。 */
         private long roomFor(Endpoint output, String key, long want) {
-            if (!allows(output, key)) {
-                output.noteReceived(EndpointStatus.FILTERED, now);
-                return 0;
-            }
             long window = output
                 .windowRemaining(now, effectiveRate(channel.type(), output.config()), effectivePeriod(output.config()));
             if (window <= 0) {
@@ -996,7 +1048,7 @@ public final class ChannelHub {
             if (rest <= 0) {
                 break;
             }
-            if (other == refused || !allows(other, key)) {
+            if (other == refused) {
                 continue;
             }
             long rescued = Math.min(

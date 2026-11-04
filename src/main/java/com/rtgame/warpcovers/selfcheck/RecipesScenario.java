@@ -31,8 +31,7 @@ public final class RecipesScenario implements SelfCheckScenario {
     @Override
     public SelfCheckResult verify() {
         String missing = missing();
-        return missing.isEmpty() ? SelfCheckResult.pass("5 个组装机配方与转换配方均已注册")
-            : SelfCheckResult.fail("缺少配方: " + missing);
+        return missing.isEmpty() ? SelfCheckResult.pass("5 个组装机配方与转换配方均已注册") : SelfCheckResult.fail("缺少配方: " + missing);
     }
 
     private static boolean hasAssembler(Item output) {
@@ -51,7 +50,8 @@ public final class RecipesScenario implements SelfCheckScenario {
         for (IRecipe recipe : (List<IRecipe>) CraftingManager.getInstance()
             .getRecipeList()) {
             ItemStack out = recipe.getRecipeOutput();
-            if (out != null && out.getItem() == output && !(recipe instanceof com.rtgame.warpcovers.gt.ClearConfigRecipe)) {
+            if (out != null && out.getItem() == output
+                && !(recipe instanceof com.rtgame.warpcovers.gt.ClearConfigRecipe)) {
                 return true;
             }
         }
@@ -61,7 +61,8 @@ public final class RecipesScenario implements SelfCheckScenario {
     private static boolean sameItem(ItemStack a, ItemStack b) {
         return a != null && b != null
             && a.getItem() == b.getItem()
-            && (a.getItemDamage() == b.getItemDamage() || a.getItemDamage() == net.minecraftforge.oredict.OreDictionary.WILDCARD_VALUE
+            && (a.getItemDamage() == b.getItemDamage()
+                || a.getItemDamage() == net.minecraftforge.oredict.OreDictionary.WILDCARD_VALUE
                 || b.getItemDamage() == net.minecraftforge.oredict.OreDictionary.WILDCARD_VALUE);
     }
 
@@ -109,7 +110,8 @@ public final class RecipesScenario implements SelfCheckScenario {
         }
         for (GTRecipe mine : ours) {
             for (GTRecipe other : others) {
-                if (other.mInputs != null && other.mInputs.length > 0 && (covered(other, mine) || covered(mine, other))) {
+                if (other.mInputs != null && other.mInputs.length > 0
+                    && (covered(other, mine) || covered(mine, other))) {
                     sb.append(mine.mOutputs[0].getDisplayName())
                         .append(" 与 ")
                         .append(
@@ -139,7 +141,9 @@ public final class RecipesScenario implements SelfCheckScenario {
                 ItemStack out = recipe.getRecipeOutput();
                 if (out == null || out.getItem() != ModItems.fluidCover) {
                     sb.append("末影流体覆盖板单独放入合成台还会匹配: ")
-                        .append(out == null ? recipe.getClass().getSimpleName() : out.getDisplayName())
+                        .append(
+                            out == null ? recipe.getClass()
+                                .getSimpleName() : out.getDisplayName())
                         .append("; ");
                 }
             }

@@ -2,7 +2,6 @@ package com.rtgame.warpcovers.gt;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -17,6 +16,7 @@ import java.util.List;
 import net.minecraft.nbt.CompressedStreamTools;
 import net.minecraft.nbt.NBTTagCompound;
 import net.minecraft.nbt.NBTTagList;
+import net.minecraft.nbt.NBTTagString;
 
 import org.junit.jupiter.api.Test;
 
@@ -291,11 +291,6 @@ class HubNbtTest {
     void 覆盖板配置往返且保持对象身份() throws IOException {
         EndpointConfig config = new EndpointConfig();
         config.setState(InteractionState.OUTPUT);
-        FilterList filter = new FilterList();
-        filter.setWhitelist(false);
-        filter.setMatchNbt(true);
-        filter.replaceKeys(Arrays.asList("water", "lava"));
-        config.setFilter(filter);
         config.setPriority(-3);
         config.setRate(12345678901L);
         config.setPeriod(40);
@@ -326,9 +321,6 @@ class HubNbtTest {
         });
         original.config()
             .setState(InteractionState.INPUT);
-        original.config()
-            .filter()
-            .add("water");
         NBTTagCompound tag = new NBTTagCompound();
         original.writeNbt(tag);
 
@@ -357,8 +349,75 @@ class HubNbtTest {
             7,
             placed.config()
                 .priority());
-        assertNotNull(
-            placed.config()
-                .filter());
+    }
+
+    @Test
+    void 配置里的旧名单字段读取时被忽略() throws IOException {
+        NBTTagCompound tag = new NBTTagCompound();
+        ConfigNbt.write(new EndpointConfig(), tag);
+        // 旧存档里名单曾存在覆盖板配置中
+        tag.setBoolean("wl", true);
+        tag.setBoolean("nbt", true);
+        NBTTagList old = new NBTTagList();
+        old.appendTag(new NBTTagString("water"));
+        tag.setTag("fl", old);
+
+        EndpointConfig target = new EndpointConfig();
+        ConfigNbt.read(throughBytes(tag), target);
+
+        assertEquals(new EndpointConfig(), target);
+    }
+
+    @Test
+    void 频道名单往返() throws IOException {
+        ChannelHub hub = new ChannelHub(CONFIG);
+        Channel channel = hub.createChannel(ChannelType.FLUID, "流体网");
+        hub.setFilterWhitelist(channel.id(), true);
+        hub.setFilterMatchNbt(channel.id(), true);
+        hub.addFilterKey(channel.id(), "water");
+        hub.addFilterKey(channel.id(), "lava");
+
+        ChannelHub restored = new ChannelHub(CONFIG);
+        HubNbt.read(throughBytes(HubNbt.write(hub)), restored);
+
+        FilterList filter = restored.findChannel(channel.id())
+            .filter();
+        assertTrue(filter.isWhitelist());
+        assertTrue(filter.matchNbt());
+        assertEquals(Arrays.asList("water", "lava"), new java.util.ArrayList<String>(filter.keys()));
+    }
+
+    @Test
+    void 旧存档的频道没有名单字段时读成默认黑名单() throws IOException {
+        ChannelHub hub = new ChannelHub(CONFIG);
+        Channel channel = hub.createChannel(ChannelType.ITEM, "物品网");
+        hub.setFilterWhitelist(channel.id(), true);
+        hub.addFilterKey(channel.id(), "stick");
+        NBTTagCompound root = HubNbt.write(hub);
+        NBTTagCompound channelTag = root.getTagList("channels", 10)
+            .getCompoundTagAt(0);
+        assertTrue(channelTag.hasKey("filter"));
+        channelTag.removeTag("filter");
+
+        ChannelHub restored = new ChannelHub(CONFIG);
+        HubNbt.read(throughBytes(root), restored);
+
+        FilterList filter = restored.findChannel(channel.id())
+            .filter();
+        assertFalse(filter.isWhitelist());
+        assertFalse(filter.matchNbt());
+        assertTrue(
+            filter.keys()
+                .isEmpty());
+    }
+
+    @Test
+    void 能量频道不写名单() {
+        ChannelHub hub = new ChannelHub(CONFIG);
+        hub.createChannel(ChannelType.ENERGY, "电网");
+        NBTTagCompound channelTag = HubNbt.write(hub)
+            .getTagList("channels", 10)
+            .getCompoundTagAt(0);
+        assertFalse(channelTag.hasKey("filter"));
     }
 }

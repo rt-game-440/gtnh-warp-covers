@@ -146,8 +146,6 @@ public final class ChannelConfigScenario implements SelfCheckScenario {
         tank.setFrontFacing(ForgeDirection.DOWN);
         FluidWarpCover cover = attachCover(tank, ForgeDirection.UP);
         cover.connect(channel.id(), connector);
-        cover.filter()
-            .add("water");
         cover.setInteractionState(state);
         return cover;
     }

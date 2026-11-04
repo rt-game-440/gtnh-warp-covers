@@ -76,13 +76,15 @@ public final class FluidChannelScenario implements SelfCheckScenario {
         FluidWarpCover outputC = attachCover(tankC, ForgeDirection.UP);
         FluidWarpCover outputB = attachCover(tankB, ForgeDirection.UP);
 
-        // 新建覆盖板的名单是空白名单；先确认这一点再逐个加白名单
-        if (!inputA.filter()
+        // 新频道的名单是空的黑名单（放行一切）；先确认这一点，连接后再改成只放行水的白名单
+        if (channel.filter()
             .isWhitelist()
-            || !inputA.filter()
+            || !channel.filter()
                 .keys()
-                .isEmpty()) {
-            throw new IllegalStateException("新覆盖板的过滤名单不是空白名单");
+                .isEmpty()
+            || channel.filter()
+                .matchNbt()) {
+            throw new IllegalStateException("新频道的过滤名单不是空黑名单");
         }
         // 连接顺序：C 在 B 之前，如果无视 GT 面规则，水会先流进 C
         for (FluidWarpCover cover : new FluidWarpCover[] { inputA, selfOutA, inputA2, outputC, outputB }) {
@@ -90,9 +92,8 @@ public final class FluidChannelScenario implements SelfCheckScenario {
             if (cover.state() != InteractionState.EMPTY) {
                 throw new IllegalStateException("新连接的交互状态不是空");
             }
-            cover.filter()
-                .add("water");
         }
+        setFilter(hub, channel, true, false, "water");
         inputA.setInteractionState(InteractionState.INPUT);
         inputA2.setInteractionState(InteractionState.INPUT);
         selfOutA.setInteractionState(InteractionState.OUTPUT);

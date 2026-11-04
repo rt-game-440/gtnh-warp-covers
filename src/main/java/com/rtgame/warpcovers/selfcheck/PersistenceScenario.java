@@ -100,9 +100,9 @@ public final class PersistenceScenario implements SelfCheckScenario {
         IGregTechTileEntity a = placeTank(world(0), A_X, Y, Z);
         IGregTechTileEntity b = placeTank(world(-1), A_X, NETHER_Y, Z);
         Channel channel = hub.createChannel(ChannelType.FLUID, CHANNEL_RESTART);
+        // 名单属于频道：白名单放行水和岩浆
+        setFilter(hub, channel, true, false, "water", "lava");
         FluidWarpCover in = connected(hub, a, channel, InteractionState.INPUT);
-        in.filter()
-            .add("lava");
         in.config()
             .setPriority(7);
         hub.configChanged(in.endpointId());
@@ -234,10 +234,10 @@ public final class PersistenceScenario implements SelfCheckScenario {
         IGregTechTileEntity l = placeTank(overworld, L_X, Y, Z);
         IGregTechTileEntity k = placeTank(overworld, K_X, Y, Z);
         Channel channel = hub.createChannel(ChannelType.FLUID, CHANNEL_PRY);
+        // 黑名单：挡住岩浆，水照常通过
+        setFilter(hub, channel, false, false, "lava");
         FluidWarpCover in = connected(hub, l, channel, InteractionState.INPUT);
         FluidWarpCover out = connected(hub, k, channel, InteractionState.OUTPUT);
-        out.filter()
-            .add("lava");
         out.config()
             .setPriority(-2);
         hub.configChanged(out.endpointId());
@@ -332,7 +332,9 @@ public final class PersistenceScenario implements SelfCheckScenario {
             "重启后 A 的配置不对: " + in.config(),
             in.state() == InteractionState.INPUT && in.config()
                 .priority() == 7
-                && in.filter()
+                && channel.filter()
+                    .isWhitelist()
+                && channel.filter()
                     .keys()
                     .containsAll(Arrays.asList("water", "lava")));
         check("重启后索引里没有 A", hub.findEndpoint(in.endpointId()) != null);
@@ -399,22 +401,26 @@ public final class PersistenceScenario implements SelfCheckScenario {
         check(
             "撬下场景重启后配置不对: " + out.config(),
             out.config()
-                .priority() == -2 && out.filter()
+                .priority() == -2
+                && !channel.filter()
+                    .isWhitelist()
+                && channel.filter()
                     .keys()
-                    .containsAll(Arrays.asList("water", "lava")));
+                    .contains("lava")
+                && !channel.filter()
+                    .keys()
+                    .contains("water"));
         expect("撬下场景重启后 K 里的水", 1000, fluidIn(k, "water"));
     }
 
     // ---- 辅助 ----
 
-    /** 贴一块覆盖板，接入频道，白名单加水，设交互状态；顶面贴，出口面朝下。 */
+    /** 贴一块覆盖板，接入频道，设交互状态；顶面贴，出口面朝下。名单在频道上，默认放行一切。 */
     private static FluidWarpCover connected(ChannelHub hub, IGregTechTileEntity tank, Channel channel,
         InteractionState state) {
         tank.setFrontFacing(ForgeDirection.DOWN);
         FluidWarpCover cover = attachCover(tank, ForgeDirection.UP);
         cover.connect(channel.id(), "selfcheck");
-        cover.filter()
-            .add("water");
         cover.setInteractionState(state);
         hub.configChanged(cover.endpointId());
         return cover;

@@ -17,6 +17,8 @@ import com.rtgame.warpcovers.core.ChannelType;
 import com.rtgame.warpcovers.core.CoverPanel;
 import com.rtgame.warpcovers.core.FilterCandidates;
 import com.rtgame.warpcovers.core.InteractionState;
+import com.rtgame.warpcovers.core.PanelNotice;
+import com.rtgame.warpcovers.core.Viewer;
 import com.rtgame.warpcovers.gt.AggregateWarpCover;
 import com.rtgame.warpcovers.gt.ItemKeys;
 import com.rtgame.warpcovers.gt.WarpPart;
@@ -26,8 +28,8 @@ import gregtech.api.enums.ItemList;
 import gregtech.api.interfaces.tileentity.IGregTechTileEntity;
 
 /**
- * 过滤名单快捷配置：真实 GT 机器的存储能列为候选（物品和流体），对端白名单能汇总，
- * 一次加入多项、已有项不重复；重启后加载的连接端同样能汇总。
+ * 过滤名单快捷配置：真实 GT 机器的存储能列为候选（物品和流体），一次加入多项、已有项不重复，
+ * 加入的是频道的名单；重启后名单还在，候选仍按名单去重。
  */
 public final class QuickFilterScenario implements SelfCheckScenario {
 
@@ -35,13 +37,11 @@ public final class QuickFilterScenario implements SelfCheckScenario {
     private static final int Y = 200;
     private static final int Z = 100;
     private static final int CHEST_X = X;
-    private static final int PEER_X = X + 2;
     private static final int TANK_X = X + 4;
-    private static final int TANK_PEER_X = X + 6;
     private static final String ITEM = "自检快捷-物品";
     private static final String FLUID = "自检快捷-流体";
-    private static final String LAVA = "lava";
     private static final String WATER = "water";
+    private static final Viewer VIEWER = new Viewer("selfcheck", "selfcheck");
 
     private static String key(net.minecraft.item.Item item) {
         return ItemKeys.of(new ItemStack(item));
@@ -53,6 +53,11 @@ public final class QuickFilterScenario implements SelfCheckScenario {
 
     private static CoverPanel panelOf(WarpPart part, ChannelType type) {
         return new CoverPanel(WarpServices.hub(), type, part, new Random(1));
+    }
+
+    /** 一次加入的反馈里带的实际加入数量；没有新项时为 0。 */
+    private static int addedCount(PanelNotice notice) {
+        return "filter_added".equals(notice.key()) ? Integer.parseInt(notice.arg()) : 0;
     }
 
     @Override
@@ -70,35 +75,17 @@ public final class QuickFilterScenario implements SelfCheckScenario {
         Channel item = hub.createChannel(ChannelType.ITEM, ITEM);
         Channel fluid = hub.createChannel(ChannelType.FLUID, FLUID);
 
-        // 物品：本端（输入）机器里有木棍和煤；对端（输出）白名单里有煤和钻石
+        // 物品：机器里有木棍和煤；候选来自本机存储，加入的是频道名单
         IGregTechTileEntity chest = placeMachine(world, CHEST_X, Y, Z, ItemList.Automation_ChestBuffer_LV.get(1));
-        IGregTechTileEntity peer = placeMachine(world, PEER_X, Y, Z, ItemList.Automation_ChestBuffer_LV.get(1));
         chest.setFrontFacing(ForgeDirection.NORTH);
-        peer.setFrontFacing(ForgeDirection.NORTH);
         chest.setInventorySlotContents(0, new ItemStack(Items.stick, 4));
         chest.setInventorySlotContents(1, new ItemStack(Items.coal, 4));
         WarpPart chestPart = attachAggregateCover(chest, ForgeDirection.UP).part(ChannelType.ITEM);
-        WarpPart peerPart = attachAggregateCover(peer, ForgeDirection.UP).part(ChannelType.ITEM);
         chestPart.connect(item.id(), "selfcheck");
-        peerPart.connect(item.id(), "selfcheck");
         chestPart.setInteractionState(InteractionState.INPUT);
-        peerPart.setInteractionState(InteractionState.OUTPUT);
-        peerPart.config()
-            .filter()
-            .add(key(Items.coal));
-        peerPart.config()
-            .filter()
-            .add(key(Items.diamond));
-        peerPart.configChanged();
 
         CoverPanel panel = panelOf(chestPart, ChannelType.ITEM);
         FilterCandidates candidates = panel.filterCandidates();
-        check(
-            "物品对端候选应含煤和钻石，实际 " + candidates.peers(),
-            candidates.peers()
-                .containsAll(list(key(Items.coal), key(Items.diamond)))
-                && candidates.peers()
-                    .size() == 2);
         check(
             "物品存储候选应含木棍和煤，实际 " + candidates.stored(),
             candidates.stored()
@@ -106,41 +93,38 @@ public final class QuickFilterScenario implements SelfCheckScenario {
                 && candidates.stored()
                     .size() == 2);
 
-        // 对端和本机都有煤：加入后两个来源都不再列出
-        expect("一次加入两项", 2, panel.addFilterKeys(list(key(Items.coal), key(Items.stick))));
-        expect("再次加入已有项", 0, panel.addFilterKeys(list(key(Items.coal))));
-        candidates = panel.filterCandidates();
+        expect(
+            "一次加入两项（含重复）",
+            2,
+            addedCount(panel.addFilterKeys(VIEWER, list(key(Items.coal), key(Items.stick), key(Items.coal)))));
+        expect("再次加入已有项", 0, addedCount(panel.addFilterKeys(VIEWER, list(key(Items.coal)))));
         check(
-            "加入后对端候选只剩钻石，实际 " + candidates.peers(),
-            candidates.peers()
-                .equals(list(key(Items.diamond))));
+            "加入的是频道名单",
+            item.filter()
+                .keys()
+                .containsAll(list(key(Items.coal), key(Items.stick))));
         check(
-            "加入后存储候选应为空，实际 " + candidates.stored(),
-            candidates.stored()
+            "加入后存储候选应为空，实际 " + panel.filterCandidates()
+                .stored(),
+            panel.filterCandidates()
+                .stored()
                 .isEmpty());
+        // 留一项不在名单里，重启后候选里还应列出它
+        panel.removeFilterKey(VIEWER, key(Items.stick));
+        check(
+            "移除后木棍重新成为候选",
+            panel.filterCandidates()
+                .stored()
+                .equals(list(key(Items.stick))));
 
-        // 流体：本端（输出）储罐里有水；对端（输入）白名单里有岩浆
+        // 流体：储罐里有水
         IGregTechTileEntity tank = placeTank(world, TANK_X, Y, Z);
-        IGregTechTileEntity tankPeer = placeTank(world, TANK_PEER_X, Y, Z);
         tank.setFrontFacing(ForgeDirection.DOWN);
-        tankPeer.setFrontFacing(ForgeDirection.DOWN);
         pour(tank, 1000);
         WarpPart tankPart = attachAggregateCover(tank, ForgeDirection.UP).part(ChannelType.FLUID);
-        WarpPart tankPeerPart = attachAggregateCover(tankPeer, ForgeDirection.UP).part(ChannelType.FLUID);
         tankPart.connect(fluid.id(), "selfcheck");
-        tankPeerPart.connect(fluid.id(), "selfcheck");
         tankPart.setInteractionState(InteractionState.OUTPUT);
-        tankPeerPart.setInteractionState(InteractionState.INPUT);
-        tankPeerPart.config()
-            .filter()
-            .add(LAVA);
-        tankPeerPart.configChanged();
-
         FilterCandidates fluids = panelOf(tankPart, ChannelType.FLUID).filterCandidates();
-        check(
-            "流体对端候选应为岩浆，实际 " + fluids.peers(),
-            fluids.peers()
-                .equals(list(LAVA)));
         check(
             "流体存储候选应为水，实际 " + fluids.stored(),
             fluids.stored()
@@ -149,37 +133,31 @@ public final class QuickFilterScenario implements SelfCheckScenario {
 
     @Override
     public SelfCheckResult verify() {
+        ChannelHub hub = WarpServices.hub();
+        Channel item = channelNamed(hub, ITEM);
         AggregateWarpCover chest = aggregateCoverAt(requireTile(world(0), CHEST_X, Y, Z), ForgeDirection.UP);
         WarpPart chestPart = chest.part(ChannelType.ITEM);
-        if (!chestPart.config()
-            .filter()
+        if (!item.filter()
             .keys()
-            .containsAll(list(key(Items.coal), key(Items.stick)))) {
+            .equals(new java.util.LinkedHashSet<String>(list(key(Items.coal))))) {
             return SelfCheckResult.fail(
-                "重启后名单丢失: " + chestPart.config()
-                    .filter()
+                "重启后频道名单不对: " + item.filter()
                     .keys());
         }
         FilterCandidates candidates = panelOf(chestPart, ChannelType.ITEM).filterCandidates();
-        if (!candidates.peers()
-            .equals(list(key(Items.diamond)))) {
-            return SelfCheckResult.fail("重启后对端候选应只剩钻石，实际 " + candidates.peers());
+        if (!candidates.stored()
+            .equals(list(key(Items.stick)))) {
+            return SelfCheckResult.fail("重启后存储候选应只剩木棍，实际 " + candidates.stored());
         }
         // 没有玩家时这里的区块不 tick，而 GT 机器 tick 不够时拒绝抽取；玩家开着界面时不会遇到
         warmUp(world(0), TANK_X, Y, Z);
         AggregateWarpCover tank = aggregateCoverAt(requireTile(world(0), TANK_X, Y, Z), ForgeDirection.UP);
         FilterCandidates fluids = panelOf(tank.part(ChannelType.FLUID), ChannelType.FLUID).filterCandidates();
-        if (!fluids.peers()
-            .equals(list(LAVA))
-            || !fluids.stored()
-                .equals(list(WATER))) {
-            return SelfCheckResult.fail(
-                "重启后流体候选不对: " + fluids.peers()
-                    + " / "
-                    + fluids.stored()
-                    + "，储罐水量 "
-                    + fluidIn(requireTile(world(0), TANK_X, Y, Z), WATER));
+        if (!fluids.stored()
+            .equals(list(WATER))) {
+            return SelfCheckResult
+                .fail("重启后流体候选不对: " + fluids.stored() + "，储罐水量 " + fluidIn(requireTile(world(0), TANK_X, Y, Z), WATER));
         }
-        return SelfCheckResult.pass("物品和流体的两个候选来源都正确，加入不重复，重启后仍可汇总");
+        return SelfCheckResult.pass("存储候选正确，加入的是频道名单且不重复，重启后名单与候选仍然正确");
     }
 }

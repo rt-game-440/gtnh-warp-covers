@@ -23,6 +23,7 @@ import com.rtgame.warpcovers.core.RemoteEndpoint;
 import com.rtgame.warpcovers.core.Viewer;
 import com.rtgame.warpcovers.gt.FluidWarpCover;
 import com.rtgame.warpcovers.gt.ModItems;
+import com.rtgame.warpcovers.gt.WarpCoverGui;
 import com.rtgame.warpcovers.gt.WarpManagerItem;
 import com.rtgame.warpcovers.gt.WarpPart;
 import com.rtgame.warpcovers.gt.WarpServices;
@@ -43,6 +44,7 @@ public final class RemoteManagerScenario implements SelfCheckScenario {
     private static final int DST_X = X;
     private static final int THIRD_X = X + 2;
     private static final String CHANNEL = "自检管理器";
+    private static final String UI_CHANNEL = "自检管理器界面";
     private static final Viewer OPERATOR = new Viewer("selfcheck-operator", "操作者");
     private static final String OLD_CONNECTOR = "selfcheck-old";
     private static final String WHITELISTED = "lava";
@@ -60,10 +62,6 @@ public final class RemoteManagerScenario implements SelfCheckScenario {
         FluidWarpCover cover = attachCover(tank, ForgeDirection.UP);
         WarpPart part = cover.part(ChannelType.FLUID);
         part.connect(channel.id(), connector);
-        // 默认的空白名单什么都不放行，这里先放行全部，由后面的远程修改来收紧
-        part.config()
-            .filter()
-            .setWhitelist(false);
         part.setInteractionState(state);
         return cover;
     }
@@ -134,9 +132,9 @@ public final class RemoteManagerScenario implements SelfCheckScenario {
         run(dst, src);
         expect("远程改成输出后开始传输", 1000, fluidIn(dstTank, "water"));
 
-        // 远程改名单：对端白名单不含水，不再传输
-        panel.addFilterKey(WHITELISTED);
-        panel.setWhitelist(true);
+        // 远程改频道名单：白名单不含水，不再传输（新频道默认放行一切）
+        panel.addFilterKey(OPERATOR, WHITELISTED);
+        panel.setWhitelist(OPERATOR, true);
         panel.setRate(500);
         panel.setPriority(3);
         pour(srcTank, 1000);
@@ -161,6 +159,18 @@ public final class RemoteManagerScenario implements SelfCheckScenario {
             new GuiData(FakePlayerFactory.getMinecraft(world(0))),
             new PanelSyncManager(new ModularSyncManager(false), false),
             null);
+        // 管理器里的频道配置面板（含名单区）和各弹窗只在客户端点击时才构建，这里在服务端构建一次抓构建期错误
+        // 界面里的玩家是假玩家，看不到操作者名下的私人频道，所以用一个无归属的频道（人人是管理者）来构建，用完删掉
+        Channel uiChannel = hub.createChannel(ChannelType.FLUID, UI_CHANNEL);
+        try {
+            WarpCoverGui.selfCheckBuildDialogs(
+                null,
+                FakePlayerFactory.getMinecraft(world(0)),
+                ChannelType.FLUID,
+                uiChannel.id());
+        } finally {
+            hub.deleteChannel(uiChannel.id());
+        }
     }
 
     @Override
@@ -178,15 +188,14 @@ public final class RemoteManagerScenario implements SelfCheckScenario {
                     + part.config()
                         .state());
         }
-        if (!part.config()
-            .filter()
+        if (!channelNamed(hub, CHANNEL).filter()
             .keys()
             .contains(WHITELISTED)
             || part.config()
                 .rate() != 500
             || part.config()
                 .priority() != 3) {
-            return SelfCheckResult.fail("重启后远程设置的名单、速率或优先级丢失");
+            return SelfCheckResult.fail("重启后远程设置的频道名单、速率或优先级丢失");
         }
         Endpoint endpoint = hub.findEndpoint(part.endpointId());
         if (endpoint == null || !OPERATOR.playerId()

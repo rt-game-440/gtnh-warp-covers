@@ -277,64 +277,146 @@ class CoverPanelTest {
     }
 
     @Test
-    void 名单增删清空与黑白切换() {
-        assertTrue(panel.addFilterKey("water"));
-        assertFalse(panel.addFilterKey("water"), "已在名单的不重复添加");
-        assertFalse(panel.addFilterKey(""));
-        panel.addFilterKey("lava");
-        assertEquals(2, endpoint.configChanges);
+    void 名单增删清空与黑白切换_操作的是所连频道() {
+        Channel channel = create(ALICE, "主网");
+        panel.toggleConnection(ALICE, channel.id());
+        int[] dirty = { 0 };
+        hub.setDirtyListener(() -> dirty[0]++);
+        assertFalse(
+            channel.filter()
+                .isWhitelist(),
+            "新频道默认黑名单");
 
-        assertTrue(panel.removeFilterKey("water"));
-        assertFalse(panel.removeFilterKey("water"));
+        assertFalse(
+            panel.addFilterKey(ALICE, "water")
+                .isError());
+        assertEquals(
+            "filter_added_none",
+            panel.addFilterKey(ALICE, "water")
+                .key(),
+            "已在名单的不重复添加");
+        panel.addFilterKey(ALICE, "");
+        panel.addFilterKey(ALICE, "lava");
+        assertEquals(2, dirty[0]);
+
+        panel.removeFilterKey(ALICE, "water");
         assertEquals(
             java.util.Collections.singleton("lava"),
-            endpoint.config.filter()
+            channel.filter()
                 .keys());
 
-        panel.setWhitelist(false);
-        panel.setWhitelist(false);
-        assertFalse(
-            endpoint.config.filter()
+        panel.setWhitelist(ALICE, true);
+        panel.setWhitelist(ALICE, true);
+        assertTrue(
+            channel.filter()
                 .isWhitelist());
 
-        panel.clearFilter();
-        panel.clearFilter();
+        panel.clearFilter(ALICE);
+        panel.clearFilter(ALICE);
         assertTrue(
-            endpoint.config.filter()
+            channel.filter()
                 .keys()
                 .isEmpty());
-        assertEquals(5, endpoint.configChanges, "只有真正变化时才标记");
+        assertEquals(5, dirty[0], "只有真正变化时才标脏");
+        assertEquals(0, endpoint.configChanges, "名单不属于覆盖板，不触发覆盖板配置变更");
+        assertSame(channel.filter(), panel.channelFilter());
     }
 
     @Test
-    void 能量覆盖板没有名单_改名单的操作一律忽略() {
-        FakePanelEndpoint energy = new FakePanelEndpoint(hub, "ep-e", new FakeMachine("E", 1000));
-        CoverPanel energyPanel = new CoverPanel(hub, ChannelType.ENERGY, energy, new Random(1));
-        assertFalse(energyPanel.addFilterKey("eu"));
-        energyPanel.setWhitelist(false);
-        energyPanel.setMatchNbt(true);
-        energyPanel.clearFilter();
+    void 未连接时不能改名单() {
+        PanelNotice notice = panel.addFilterKey(ALICE, "water");
+        assertTrue(notice.isError());
+        assertEquals("not_connected", notice.key());
         assertTrue(
-            energy.config.filter()
+            panel.setWhitelist(ALICE, true)
+                .isError());
+        assertTrue(
+            panel.clearFilter(ALICE)
+                .isError());
+        assertNull(panel.channelFilter());
+        assertEquals(
+            "not_connected",
+            panel.notice()
+                .key());
+    }
+
+    @Test
+    void 没有修改配置权限的人不能改名单且得到失败提示() {
+        Channel channel = create(ALICE, "主网");
+        hub.setPublic(channel.id(), true);
+        panel.toggleConnection(BOB, channel.id());
+        assertEquals(channel.id(), endpoint.channelId());
+
+        PanelNotice notice = panel.addFilterKey(BOB, "water");
+        assertTrue(notice.isError());
+        assertEquals("no_configure_permission", notice.key());
+        assertEquals(
+            "no_configure_permission",
+            panel.notice()
+                .key(),
+            "失败提示显示在状态栏");
+        assertTrue(
+            panel.setWhitelist(BOB, true)
+                .isError());
+        assertTrue(
+            panel.setMatchNbt(BOB, true)
+                .isError());
+        assertTrue(
+            panel.removeFilterKey(BOB, "water")
+                .isError());
+        assertTrue(
+            panel.clearFilter(BOB)
+                .isError());
+        assertTrue(
+            panel.addFilterKeys(BOB, java.util.Arrays.asList("a"))
+                .isError());
+        assertTrue(
+            channel.filter()
                 .keys()
                 .isEmpty());
-        assertTrue(
-            energy.config.filter()
-                .isWhitelist());
         assertFalse(
-            energy.config.filter()
-                .matchNbt());
+            channel.filter()
+                .isWhitelist());
+    }
+
+    @Test
+    void 能量覆盖板没有名单_改名单的操作一律被拒绝() {
+        Channel energyChannel = hub
+            .createChannel(ChannelType.ENERGY, "电网", ALICE.personalOwnerId(), ALICE.name(), ChannelColors.DEFAULT)
+            .channel();
+        FakePanelEndpoint energy = new FakePanelEndpoint(hub, "ep-e", new FakeMachine("E", 1000));
+        CoverPanel energyPanel = new CoverPanel(hub, ChannelType.ENERGY, energy, new Random(1));
+        energyPanel.toggleConnection(ALICE, energyChannel.id());
+        assertTrue(
+            energyPanel.addFilterKey(ALICE, "eu")
+                .isError());
+        assertTrue(
+            energyPanel.setWhitelist(ALICE, true)
+                .isError());
+        assertTrue(
+            energyPanel.setMatchNbt(ALICE, true)
+                .isError());
+        assertTrue(
+            energyPanel.clearFilter(ALICE)
+                .isError());
+        assertNull(energyPanel.channelFilter());
+        assertTrue(
+            energyPanel.filterCandidates()
+                .stored()
+                .isEmpty());
         assertEquals(0, energy.configChanges);
     }
 
     @Test
     void 名单不限条数() {
+        Channel channel = create(ALICE, "主网");
+        panel.toggleConnection(ALICE, channel.id());
         for (int i = 0; i < 500; i++) {
-            panel.addFilterKey("fluid" + i);
+            panel.addFilterKey(ALICE, "fluid" + i);
         }
         assertEquals(
             500,
-            endpoint.config.filter()
+            channel.filter()
                 .keys()
                 .size());
     }

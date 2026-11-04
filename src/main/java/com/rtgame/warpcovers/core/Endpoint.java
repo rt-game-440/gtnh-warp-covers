@@ -74,10 +74,6 @@ public final class Endpoint {
         return config.state();
     }
 
-    public FilterList filter() {
-        return config.filter();
-    }
-
     /** 覆盖板是否已加载且机器仍然有效。 */
     public boolean isLoaded() {
         return port != null && port.isAlive();
@@ -175,7 +171,7 @@ public final class Endpoint {
         this.lastStatusTime = now;
     }
 
-    /** 记录输出端被访问的结果；同一时刻有多个输入端时只升级不降级（传输中 &gt; 自身已满 &gt; 被名单过滤）。 */
+    /** 记录输出端被访问的结果；同一时刻有多个输入端时只升级不降级（传输中 &gt; 自身已满）。 */
     void noteReceived(EndpointStatus status, long now) {
         if (now == lastStatusTime && rank(lastStatus) >= rank(status)) {
             return;
@@ -189,9 +185,6 @@ public final class Endpoint {
         }
         if (status == EndpointStatus.SELF_FULL) {
             return 2;
-        }
-        if (status == EndpointStatus.FILTERED) {
-            return 1;
         }
         return 0;
     }

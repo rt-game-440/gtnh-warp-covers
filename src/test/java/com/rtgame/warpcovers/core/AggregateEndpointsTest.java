@@ -22,8 +22,9 @@ class AggregateEndpointsTest {
         EndpointConfig config = new EndpointConfig();
         config.setState(state);
         if (key != null) {
-            config.filter()
-                .add(key);
+            // 名单属于频道：只放行这一种
+            hub.setFilterWhitelist(channel.id(), true);
+            hub.addFilterKey(channel.id(), key);
         }
         hub.connect(channel.id(), id, machine.location, "", config, machine, null);
         return id;

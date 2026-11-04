@@ -36,20 +36,23 @@ import gregtech.common.covers.Cover;
  * 物品频道直通场景：主世界与下界各放 GT 箱式缓存，贴物品折跃覆盖板，检查跨维度传输、ID+损伤值匹配、
  * 「匹配 NBT」开关、同方块自环、GT 面规则与总量守恒；挖下机器再放回后覆盖板配置保留；服务器重启后再检查一遍。
  * <p>
- * 布置（频道「物品自检频道」，连接顺序即下面的顺序）：
+ * 过滤名单属于频道（两端共用）。新频道默认是空黑名单；频道 1「物品自检频道」设为白名单 {白色羊毛, 木棍, 燧石, 铁锭}、
+ * 匹配 NBT 关；频道 2「物品自检频道NBT」设为白名单 {木棍}、匹配 NBT 开。布置：
  * <ul>
- * <li>A（主世界，箱式缓存）：顶面输入端，白名单 {白色羊毛, 木棍}，匹配 NBT 关。内有白色羊毛、橙色羊毛（同 ID 不同损伤值，应被挡）、
- * 木棍、改名木棍（NBT 不同，匹配 NBT 关时应放行）。底面输出端，白名单 {白色羊毛}，用来验证同方块自环被跳过</li>
- * <li>A2（主世界，箱式缓存）：顶面输入端，白名单 {木棍}，匹配 NBT 开。普通木棍应传走，改名木棍应留下</li>
- * <li>M（主世界，LV 打粉机）：顶面输入端，空黑名单。输入槽的铁锭按 GT 面规则不能抽，输出槽的燧石可以抽</li>
- * <li>C（主世界，箱式缓存）：背面（缓存不许从背面放入）贴输出端，空黑名单，应收不到任何东西</li>
- * <li>B（下界，箱式缓存）：顶面输出端，空黑名单，应收到全部放行的物品</li>
- * <li>D/D2（主世界）：配置好的物品覆盖板随机器挖下、放回后配置与频道都还在</li>
+ * <li>A（主世界，箱式缓存）：顶面输入端接频道 1。内有白色羊毛、橙色羊毛（同 ID 不同损伤值，应被挡）、
+ * 木棍、改名木棍（NBT 不同，匹配 NBT 关时应放行）。底面输出端也在频道 1，用来验证同方块自环被跳过</li>
+ * <li>A2（主世界，箱式缓存）：顶面输入端接频道 2。普通木棍应传走，改名木棍（匹配 NBT 开）应留下</li>
+ * <li>M（主世界，LV 打粉机）：顶面输入端接频道 1。输入槽的铁锭虽在名单里，但按 GT 面规则不能抽，输出槽的燧石可以抽</li>
+ * <li>C（主世界，箱式缓存）：背面（缓存不许从背面放入）贴频道 1 的输出端，应收不到任何东西</li>
+ * <li>B（下界，箱式缓存）：顶面接频道 1 的输出端，应收到全部放行的物品</li>
+ * <li>B2（下界，箱式缓存）：顶面接频道 2 的输出端，只收到普通木棍</li>
+ * <li>D/D2（主世界）：配置好的物品覆盖板随机器挖下、放回后配置与频道都还在，频道名单不变</li>
  * </ul>
  */
 public final class ItemChannelScenario implements SelfCheckScenario {
 
     private static final String CHANNEL = "物品自检频道";
+    private static final String CHANNEL_NBT = "物品自检频道NBT";
     private static final int X = 80;
     private static final int Z = 20;
     private static final int OVERWORLD_Y = 200;
@@ -73,6 +76,7 @@ public final class ItemChannelScenario implements SelfCheckScenario {
     private static final int E_X = X + 12;
     private static final int F_X = X + 14;
     private static final int B_X = X;
+    private static final int B2_X = X + 2;
 
     @Override
     public String name() {
@@ -123,11 +127,13 @@ public final class ItemChannelScenario implements SelfCheckScenario {
         IGregTechTileEntity m = placeMachine(overworld, M_X, OVERWORLD_Y, Z, ItemList.Machine_LV_Macerator.get(1));
         IGregTechTileEntity c = placeMachine(overworld, C_X, OVERWORLD_Y, Z, ItemList.Automation_ChestBuffer_LV.get(1));
         IGregTechTileEntity b = placeMachine(nether, B_X, NETHER_Y, Z, ItemList.Automation_ChestBuffer_LV.get(1));
+        IGregTechTileEntity b2 = placeMachine(nether, B2_X, NETHER_Y, Z, ItemList.Automation_ChestBuffer_LV.get(1));
 
         // 箱式缓存不许从背面放入：A、A2、B 背面朝北/朝下以外的方向，C 的背面朝上（=贴输出端的那一面）
         a.setFrontFacing(ForgeDirection.NORTH);
         a2.setFrontFacing(ForgeDirection.NORTH);
         b.setFrontFacing(ForgeDirection.UP);
+        b2.setFrontFacing(ForgeDirection.UP);
         c.setFrontFacing(ForgeDirection.DOWN);
         check("C 的背面应朝上", c.getBackFacing() == ForgeDirection.UP);
         m.setFrontFacing(ForgeDirection.NORTH);
@@ -145,7 +151,17 @@ public final class ItemChannelScenario implements SelfCheckScenario {
 
         ChannelHub hub = WarpServices.hub();
         deleteChannelsNamed(hub, CHANNEL);
+        deleteChannelsNamed(hub, CHANNEL_NBT);
         Channel channel = hub.createChannel(ChannelType.ITEM, CHANNEL);
+        Channel channelNbt = hub.createChannel(ChannelType.ITEM, CHANNEL_NBT);
+        check(
+            "新频道的名单应是空黑名单、不匹配 NBT",
+            !channel.filter()
+                .isWhitelist() && channel.filter()
+                    .keys()
+                    .isEmpty()
+                && !channel.filter()
+                    .matchNbt());
 
         ItemWarpCover inputA = attachItemCover(a, ForgeDirection.UP);
         ItemWarpCover selfOutA = attachItemCover(a, ForgeDirection.DOWN);
@@ -153,30 +169,15 @@ public final class ItemChannelScenario implements SelfCheckScenario {
         ItemWarpCover inputM = attachItemCover(m, ForgeDirection.UP);
         ItemWarpCover outputC = attachItemCover(c, ForgeDirection.UP);
         ItemWarpCover outputB = attachItemCover(b, ForgeDirection.UP);
-        check(
-            "新覆盖板的匹配 NBT 应默认关闭",
-            !inputA.filter()
-                .matchNbt());
+        ItemWarpCover outputB2 = attachItemCover(b2, ForgeDirection.UP);
 
-        for (ItemWarpCover cover : new ItemWarpCover[] { inputA, selfOutA, inputA2, inputM, outputC, outputB }) {
+        for (ItemWarpCover cover : new ItemWarpCover[] { inputA, selfOutA, inputM, outputC, outputB }) {
             cover.connect(channel.id(), "selfcheck");
         }
-        inputA.filter()
-            .add(whiteWool());
-        inputA.filter()
-            .add(stick());
-        selfOutA.filter()
-            .add(whiteWool());
-        inputA2.filter()
-            .add(stick());
-        inputA2.filter()
-            .setMatchNbt(true);
-        inputM.filter()
-            .setWhitelist(false);
-        outputC.filter()
-            .setWhitelist(false);
-        outputB.filter()
-            .setWhitelist(false);
+        inputA2.connect(channelNbt.id(), "selfcheck");
+        outputB2.connect(channelNbt.id(), "selfcheck");
+        setFilter(hub, channel, true, false, whiteWool(), stick(), flint(), ingot());
+        setFilter(hub, channelNbt, true, true, stick());
 
         inputA.setInteractionState(InteractionState.INPUT);
         selfOutA.setInteractionState(InteractionState.OUTPUT);
@@ -184,12 +185,13 @@ public final class ItemChannelScenario implements SelfCheckScenario {
         inputM.setInteractionState(InteractionState.INPUT);
         outputC.setInteractionState(InteractionState.OUTPUT);
         outputB.setInteractionState(InteractionState.OUTPUT);
+        outputB2.setInteractionState(InteractionState.OUTPUT);
 
         for (int period = 0; period < 3; period++) {
             runCovers(period * 20L, inputA, inputA2, inputM);
         }
 
-        String problem = checkContents(a, a2, m, c, b);
+        String problem = checkContents(a, a2, m, c, b, b2);
         check(problem + diagnostics(hub, inputA, a, b), problem == null);
 
         digAndReplace(overworld, hub, channel);
@@ -198,23 +200,25 @@ public final class ItemChannelScenario implements SelfCheckScenario {
 
     /** 检查各机器里的物品数量；没问题返回 null。 */
     private static String checkContents(IGregTechTileEntity a, IGregTechTileEntity a2, IGregTechTileEntity m,
-        IGregTechTileEntity c, IGregTechTileEntity b) {
+        IGregTechTileEntity c, IGregTechTileEntity b, IGregTechTileEntity b2) {
         StringBuilder problems = new StringBuilder();
         expectCount(problems, "A 里的白色羊毛（应全部传走，且没有自环回 A）", 0, count(a, whiteWool()));
         expectCount(problems, "A 里的橙色羊毛（损伤值不同，被白名单挡住）", ORANGE_WOOL, count(a, orangeWool()));
         expectCount(problems, "A 里的木棍", 0, count(a, stick()));
         expectCount(problems, "A 里的改名木棍（匹配 NBT 关，应放行）", 0, count(a, namedStick()));
         expectCount(problems, "A2 里的木棍", 0, count(a2, stick()));
-        expectCount(problems, "A2 里的改名木棍（匹配 NBT 开，应被挡住）", A2_NAMED_STICKS, count(a2, namedStick()));
-        expectCount(problems, "M 输入槽里的铁锭（面规则不许抽）", M_INGOTS, count(m, ingot()));
+        expectCount(problems, "A2 里的改名木棍（频道 2 匹配 NBT 开，应被挡住）", A2_NAMED_STICKS, count(a2, namedStick()));
+        expectCount(problems, "M 输入槽里的铁锭（在名单里，但面规则不许抽）", M_INGOTS, count(m, ingot()));
         expectCount(problems, "M 里的燧石", 0, count(m, flint()));
         expectCount(problems, "C（背面）里的物品", 0, total(c));
         expectCount(problems, "B（下界）里的白色羊毛", WHITE_WOOL, count(b, whiteWool()));
-        expectCount(problems, "B 里的木棍", A_STICKS + A2_STICKS, count(b, stick()));
+        expectCount(problems, "B 里的木棍（A2 的木棍在另一个频道）", A_STICKS, count(b, stick()));
         expectCount(problems, "B 里的改名木棍", A_NAMED_STICKS, count(b, namedStick()));
         expectCount(problems, "B 里的燧石", M_FLINT, count(b, flint()));
-        expectCount(problems, "B 里的物品总数", WHITE_WOOL + A_STICKS + A2_STICKS + A_NAMED_STICKS + M_FLINT, total(b));
-        long all = total(a) + total(a2) + total(m) + total(c) + total(b);
+        expectCount(problems, "B 里的物品总数", WHITE_WOOL + A_STICKS + A_NAMED_STICKS + M_FLINT, total(b));
+        expectCount(problems, "B2（下界，频道 2）里的木棍", A2_STICKS, count(b2, stick()));
+        expectCount(problems, "B2 里的物品总数", A2_STICKS, total(b2));
+        long all = total(a) + total(a2) + total(m) + total(c) + total(b) + total(b2);
         expectCount(
             problems,
             "物品总数（守恒）",
@@ -223,17 +227,11 @@ public final class ItemChannelScenario implements SelfCheckScenario {
         return problems.length() == 0 ? null : problems.toString();
     }
 
-    /** 配置好的物品覆盖板随机器挖下来、放回去后，名单、匹配 NBT 开关和频道都还在。 */
+    /** 配置好的物品覆盖板随机器挖下来、放回去后，交互状态和频道都还在（名单在频道上，不受影响）。 */
     private static void digAndReplace(WorldServer overworld, ChannelHub hub, Channel channel) {
         IGregTechTileEntity d = placeMachine(overworld, D_X, OVERWORLD_Y, Z, ItemList.Automation_ChestBuffer_LV.get(1));
         ItemWarpCover cover = attachItemCover(d, ForgeDirection.UP);
         cover.connect(channel.id(), "selfcheck");
-        cover.filter()
-            .add(namedStick());
-        cover.filter()
-            .setMatchNbt(true);
-        cover.filter()
-            .setWhitelist(false);
         cover.setInteractionState(InteractionState.INPUT);
         EndpointConfig before = cover.config()
             .copy();
@@ -319,11 +317,12 @@ public final class ItemChannelScenario implements SelfCheckScenario {
         IGregTechTileEntity m = tileAt(overworld, M_X, OVERWORLD_Y, Z);
         IGregTechTileEntity c = tileAt(overworld, C_X, OVERWORLD_Y, Z);
         IGregTechTileEntity b = tileAt(nether, B_X, NETHER_Y, Z);
+        IGregTechTileEntity b2 = tileAt(nether, B2_X, NETHER_Y, Z);
         IGregTechTileEntity d2 = tileAt(overworld, D2_X, OVERWORLD_Y, Z);
-        if (a == null || a2 == null || m == null || c == null || b == null || d2 == null) {
+        if (a == null || a2 == null || m == null || c == null || b == null || b2 == null || d2 == null) {
             return SelfCheckResult.fail("重启后有机器丢失");
         }
-        String problem = checkContents(a, a2, m, c, b);
+        String problem = checkContents(a, a2, m, c, b, b2);
         if (problem != null) {
             return SelfCheckResult.fail("重启后物品数量不对: " + problem);
         }
@@ -332,23 +331,23 @@ public final class ItemChannelScenario implements SelfCheckScenario {
         if (inputA == null || inputA.state() != InteractionState.INPUT
             || inputA.channelId()
                 .isEmpty()
-            || !sameFilter(inputA.filter(), true, false, whiteWool(), stick())) {
+            || !sameFilter(inputA.filter(), true, false, whiteWool(), stick(), flint(), ingot())) {
             return SelfCheckResult.fail("重启后 A 顶面的物品覆盖板数据丢失: " + describe(inputA));
         }
         ItemWarpCover inputA2 = coverOrNull(a2, ForgeDirection.UP);
         if (inputA2 == null || !sameFilter(inputA2.filter(), true, true, stick())) {
-            return SelfCheckResult.fail("重启后 A2 的匹配 NBT 开关或名单丢失: " + describe(inputA2));
+            return SelfCheckResult.fail("重启后 A2 所在频道的匹配 NBT 开关或名单丢失: " + describe(inputA2));
         }
         ItemWarpCover placed = coverOrNull(d2, ForgeDirection.UP);
         if (placed == null || placed.state() != InteractionState.INPUT
-            || !sameFilter(placed.filter(), false, true, namedStick())) {
-            return SelfCheckResult.fail("重启后挖下又放回的物品覆盖板配置丢失: " + describe(placed));
+            || !sameFilter(placed.filter(), true, false, whiteWool(), stick(), flint(), ingot())) {
+            return SelfCheckResult.fail("重启后挖下又放回的物品覆盖板配置或频道名单丢失: " + describe(placed));
         }
         ItemWarpCover outputB = coverOrNull(b, ForgeDirection.UP);
         if (outputB == null || outputB.state() != InteractionState.OUTPUT) {
             return SelfCheckResult.fail("重启后 B 顶面的输出端覆盖板数据丢失");
         }
-        return SelfCheckResult.pass("跨维度物品传输、ID/损伤值/NBT 匹配、面规则与守恒正确，覆盖板配置在挖下放回和重启后依然存在");
+        return SelfCheckResult.pass("跨维度物品传输、频道名单的 ID/损伤值/NBT 匹配、面规则与守恒正确，覆盖板配置和频道名单在挖下放回和重启后依然存在");
     }
 
     /** 传输失败时附带的诊断：输入端状态、两端的 GTNHLib 物品接口。 */

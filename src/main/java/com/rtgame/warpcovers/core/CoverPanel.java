@@ -9,7 +9,7 @@ import java.util.Random;
 import java.util.TreeSet;
 
 /**
- * 覆盖板界面的服务端逻辑：列出频道、新增频道、连接/断开、切换交互状态、编辑过滤名单。
+ * 覆盖板界面的服务端逻辑：列出频道、新增频道、连接/断开、切换交互状态、编辑所连频道的过滤名单。
  * 与 GT 和界面框架无关；界面每次打开创建一个，操作反馈保存在 {@link #notice()} 里。
  */
 public final class CoverPanel {
@@ -25,7 +25,7 @@ public final class CoverPanel {
         }
     };
 
-    /** 每个来源最多列出的候选数，防止物品极多的机器撑大同步数据。 */
+    /** 最多列出的候选数，防止物品极多的机器撑大同步数据。 */
     public static final int MAX_FILTER_CANDIDATES = 256;
 
     private final ChannelHub hub;
@@ -247,76 +247,38 @@ public final class CoverPanel {
         return true;
     }
 
-    public void setWhitelist(boolean whitelist) {
-        if (!type.hasFilter()) {
-            return;
-        }
-        FilterList filter = endpoint.config()
-            .filter();
-        if (filter.isWhitelist() != whitelist) {
-            filter.setWhitelist(whitelist);
-            endpoint.configChanged();
-        }
+    // ---- 过滤名单：属于所连频道，需要该频道的「修改配置」权限 ----
+
+    /** 当前频道的名单；未连接或没有名单（能量）时为 null。 */
+    public FilterList channelFilter() {
+        Channel current = connectedChannel();
+        return current == null || !current.type()
+            .hasFilter() ? null : current.filter();
     }
 
-    public void setMatchNbt(boolean matchNbt) {
-        if (!type.hasFilter()) {
-            return;
-        }
-        FilterList filter = endpoint.config()
-            .filter();
-        if (filter.matchNbt() != matchNbt) {
-            filter.setMatchNbt(matchNbt);
-            endpoint.configChanged();
-        }
+    public PanelNotice setWhitelist(Viewer viewer, boolean whitelist) {
+        Channel current = connectedChannel();
+        return current == null ? notConnected()
+            : reportFailure(admin.setFilterWhitelist(viewer, current.id(), whitelist));
     }
 
-    /**
-     * 快捷配置的候选：对端白名单和本机存储，都去掉名单已覆盖的。对端按本端状态取相反状态的连接端，
-     * 本端是「空」或未连接时没有对端来源；对端是黑名单时名单内容是「不要」的物体，不算候选。
-     */
+    public PanelNotice setMatchNbt(Viewer viewer, boolean matchNbt) {
+        Channel current = connectedChannel();
+        return current == null ? notConnected()
+            : reportFailure(admin.setFilterMatchNbt(viewer, current.id(), matchNbt));
+    }
+
+    /** 快捷配置的候选：本机存储里现有的物体，去掉频道名单已覆盖的。未连接或频道没有名单时为空。 */
     public FilterCandidates filterCandidates() {
-        if (!type.hasFilter()) {
+        FilterList filter = channelFilter();
+        if (filter == null) {
             return FilterCandidates.NONE;
-        }
-        FilterList filter = endpoint.config()
-            .filter();
-        TreeSet<String> peerKeys = new TreeSet<String>();
-        InteractionState wanted = oppositeOf(
-            endpoint.config()
-                .state());
-        String channelId = endpoint.channelId();
-        if (wanted != null && !channelId.isEmpty()) {
-            for (Endpoint peer : hub.endpoints()) {
-                if (peer.channelId()
-                    .equals(channelId)
-                    && !peer.endpointId()
-                        .equals(endpoint.endpointId())
-                    && peer.state() == wanted
-                    && peer.filter()
-                        .isWhitelist()) {
-                    peerKeys.addAll(
-                        peer.filter()
-                            .keys());
-                }
-            }
         }
         List<String> storedKeys = new ArrayList<String>();
         for (ObjectStack stack : endpoint.storedObjects()) {
             storedKeys.add(stack.key());
         }
-        return new FilterCandidates(uncovered(peerKeys, filter), uncovered(storedKeys, filter));
-    }
-
-    private static InteractionState oppositeOf(InteractionState state) {
-        switch (state) {
-            case INPUT:
-                return InteractionState.OUTPUT;
-            case OUTPUT:
-                return InteractionState.INPUT;
-            default:
-                return null;
-        }
+        return new FilterCandidates(uncovered(storedKeys, filter));
     }
 
     /** 去掉名单已覆盖的和彼此重复的（按名单的匹配方式判断）；超过上限的部分丢弃。 */
@@ -336,63 +298,35 @@ public final class CoverPanel {
         return result;
     }
 
-    /** 一次往名单里加多种物体，已被名单覆盖的跳过。 @return 实际加入的数量 */
-    public int addFilterKeys(Collection<String> keys) {
-        if (!type.hasFilter()) {
-            return 0;
-        }
-        FilterList filter = endpoint.config()
-            .filter();
-        int added = 0;
-        for (String key : keys) {
-            if (key != null && !key.isEmpty() && !filter.contains(key) && filter.add(key)) {
-                added++;
-            }
-        }
-        if (added > 0) {
-            endpoint.configChanged();
-            report(PanelNotice.info("filter_added", Integer.toString(added)));
-        } else {
-            report(PanelNotice.info("filter_added_none", ""));
-        }
-        return added;
+    /** 一次往名单里加多种物体，已被名单覆盖的跳过；反馈里带实际加入的数量。 */
+    public PanelNotice addFilterKeys(Viewer viewer, Collection<String> keys) {
+        Channel current = connectedChannel();
+        return current == null ? notConnected() : report(admin.addFilterKeys(viewer, current.id(), keys));
     }
 
-    /** 往名单里加一种物体；已在名单里时返回 false。 */
-    public boolean addFilterKey(String key) {
-        if (key == null || key.isEmpty() || !type.hasFilter()) {
-            return false;
-        }
-        boolean added = endpoint.config()
-            .filter()
-            .add(key);
-        if (added) {
-            endpoint.configChanged();
-        }
-        return added;
+    /** 往名单里加一种物体（已被名单覆盖时名单不变）。 */
+    public PanelNotice addFilterKey(Viewer viewer, String key) {
+        Channel current = connectedChannel();
+        return current == null ? notConnected() : reportFailure(admin.addFilterKey(viewer, current.id(), key));
     }
 
-    public boolean removeFilterKey(String key) {
-        boolean removed = endpoint.config()
-            .filter()
-            .remove(key);
-        if (removed) {
-            endpoint.configChanged();
-        }
-        return removed;
+    public PanelNotice removeFilterKey(Viewer viewer, String key) {
+        Channel current = connectedChannel();
+        return current == null ? notConnected() : reportFailure(admin.removeFilterKey(viewer, current.id(), key));
     }
 
-    public void clearFilter() {
-        if (!type.hasFilter()) {
-            return;
-        }
-        FilterList filter = endpoint.config()
-            .filter();
-        if (!filter.keys()
-            .isEmpty()) {
-            filter.clear();
-            endpoint.configChanged();
-        }
+    public PanelNotice clearFilter(Viewer viewer) {
+        Channel current = connectedChannel();
+        return current == null ? notConnected() : reportFailure(admin.clearFilter(viewer, current.id()));
+    }
+
+    private PanelNotice notConnected() {
+        return report(PanelNotice.error("not_connected", ""));
+    }
+
+    /** 只在失败时记下反馈：成功的名单修改界面上直接看得到，不必刷状态栏。 */
+    private PanelNotice reportFailure(PanelNotice result) {
+        return result.isError() ? report(result) : result;
     }
 
     /** 输出优先级：越大越先收。 */

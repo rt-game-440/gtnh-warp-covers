@@ -132,7 +132,8 @@ class PanelSnapshotTest {
 
         PanelSnapshot.ChannelRow other = view.row(bobs.id());
         assertEquals("别人的备注", other.note);
-        assertFalse(other.hasConfigPanel(), "公开频道的陌生人没有齿轮");
+        assertTrue(other.hasConfigPanel(), "有名单的频道，陌生人也有齿轮，进去只读");
+        assertFalse(other.canConfigure);
         assertNull(other.permissions);
         assertFalse(other.canEditCreate());
         assertNull(view.row("没有"));
@@ -218,12 +219,8 @@ class PanelSnapshotTest {
         MemoryMachine sink = new MemoryMachine("dst-" + key + channelId);
         EndpointConfig in = new EndpointConfig();
         in.setState(InteractionState.INPUT);
-        in.filter()
-            .add(key);
         EndpointConfig out = new EndpointConfig();
         out.setState(InteractionState.OUTPUT);
-        out.filter()
-            .add(key);
         String inId = "in-" + key + channelId;
         String outId = "out-" + key + channelId;
         hub.connect(channelId, inId, new Location(0, nextX++, 0, 0, 0), "", in, source, null);
@@ -293,17 +290,95 @@ class PanelSnapshotTest {
     }
 
     @Test
-    void 名单快照保持顺序和黑白模式() throws IOException {
-        EndpointConfig config = new EndpointConfig();
-        config.filter()
-            .setWhitelist(false);
-        config.filter()
-            .replaceKeys(Arrays.asList("water", "lava", "steam"));
+    void 名单快照是指定频道的名单_保持顺序和黑白模式() throws IOException {
+        panel.createChannel(alice, "主网", true);
+        panel.addFilterKey(alice, "water");
+        panel.addFilterKey(alice, "lava");
+        panel.addFilterKey(alice, "steam");
+        panel.setWhitelist(alice, true);
+        panel.setMatchNbt(alice, true);
+        String id = panel.connectedChannel()
+            .id();
 
-        PanelSnapshot.FilterView view = PanelSnapshot.parseFilter(roundTrip(PanelSnapshot.filter(config)));
+        PanelSnapshot.FilterView view = PanelSnapshot
+            .parseFilter(roundTrip(PanelSnapshot.filter(panel.hub(), alice, id)), id);
 
-        assertFalse(view.whitelist);
+        assertTrue(view.whitelist);
+        assertTrue(view.matchNbt);
         assertEquals(Arrays.asList("water", "lava", "steam"), view.keys);
+    }
+
+    @Test
+    void 未连接的频道也能取到名单() throws IOException {
+        panel.createChannel(alice, "主网", false);
+        String id = panel.visibleChannels(alice)
+            .get(0)
+            .id();
+        panel.hub()
+            .addFilterKey(id, "water");
+
+        PanelSnapshot.FilterView view = PanelSnapshot
+            .parseFilter(roundTrip(PanelSnapshot.filter(panel.hub(), alice, id)), id);
+
+        assertEquals(Arrays.asList("water"), view.keys);
+    }
+
+    @Test
+    void 名单快照不是要看的频道时按默认黑名单处理() throws IOException {
+        panel.createChannel(alice, "主网", false);
+        String id = panel.visibleChannels(alice)
+            .get(0)
+            .id();
+        panel.hub()
+            .addFilterKey(id, "water");
+        panel.hub()
+            .setFilterWhitelist(id, true);
+
+        PanelSnapshot.FilterView stale = PanelSnapshot
+            .parseFilter(roundTrip(PanelSnapshot.filter(panel.hub(), alice, id)), "别的频道");
+        assertFalse(stale.whitelist);
+        assertTrue(stale.keys.isEmpty());
+
+        PanelSnapshot.FilterView unknown = PanelSnapshot
+            .parseFilter(roundTrip(PanelSnapshot.filter(panel.hub(), alice, "")), "");
+        assertFalse(unknown.whitelist);
+        assertTrue(unknown.keys.isEmpty());
+    }
+
+    @Test
+    void 看不见的频道不下发名单() throws IOException {
+        panel.createChannel(alice, "主网", false);
+        String id = panel.visibleChannels(alice)
+            .get(0)
+            .id();
+        panel.hub()
+            .addFilterKey(id, "water");
+
+        PanelSnapshot.FilterView view = PanelSnapshot
+            .parseFilter(roundTrip(PanelSnapshot.filter(panel.hub(), bob, id)), id);
+
+        assertTrue(view.keys.isEmpty(), "没有可见权限的人拿不到名单");
+    }
+
+    @Test
+    void 频道页每行带名单概要_能量频道没有() {
+        panel.createChannel(alice, "主网", false);
+        String id = panel.visibleChannels(alice)
+            .get(0)
+            .id();
+        panel.hub()
+            .addFilterKey(id, "water");
+        panel.hub()
+            .addFilterKey(id, "lava");
+        panel.hub()
+            .setFilterWhitelist(id, true);
+
+        PanelSnapshot.ChannelRow row = PanelSnapshot.parseChannels(PanelSnapshot.channels(panel, alice))
+            .row(id);
+
+        assertTrue(row.hasFilter);
+        assertTrue(row.filterWhitelist);
+        assertEquals(2, row.filterCount);
     }
 
     @Test
@@ -311,7 +386,7 @@ class PanelSnapshotTest {
         NBTTagCompound empty = new NBTTagCompound();
         assertTrue(PanelSnapshot.parseChannels(empty).rows.isEmpty());
         assertEquals(InteractionState.EMPTY, PanelSnapshot.parseChannels(empty).state);
-        assertTrue(PanelSnapshot.parseFilter(empty).whitelist);
+        assertFalse(PanelSnapshot.parseFilter(empty).whitelist);
         assertTrue(PanelSnapshot.parseFilter(empty).keys.isEmpty());
         PanelSnapshot.StatusView status = PanelSnapshot.parseStatus(empty);
         assertEquals(EndpointStatus.UNCONNECTED, status.status);

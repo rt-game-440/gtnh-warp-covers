@@ -64,6 +64,10 @@ public final class HubNbt {
                 "perms",
                 channel.permissions()
                     .toMasks());
+            if (channel.type()
+                .hasFilter()) {
+                tag.setTag("filter", ConfigNbt.writeFilter(channel.filter()));
+            }
             channels.appendTag(tag);
         }
         root.setTag("channels", channels);
@@ -170,7 +174,8 @@ public final class HubNbt {
                 tag.getString("ownerName"),
                 DistributionMode.byKey(tag.getString("distribution")),
                 tag.hasKey("perms") ? ChannelPermissions.fromMasks(tag.getIntArray("perms")) : new ChannelPermissions(),
-                tag.getString("note"));
+                tag.getString("note"),
+                tag.hasKey("filter") ? ConfigNbt.readFilter(tag.getCompoundTag("filter")) : null);
         }
         NBTTagList policies = root.getTagList("createPolicies", TAG_COMPOUND);
         for (int i = 0; i < policies.tagCount(); i++) {

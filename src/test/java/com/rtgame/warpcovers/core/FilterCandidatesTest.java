@@ -10,13 +10,15 @@ import java.util.Random;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+/** 快捷配置的候选：只有本机存储里现有的物体，去掉频道名单已覆盖的；加入的是频道的名单。 */
 class FilterCandidatesTest {
+
+    private static final Viewer VIEWER = new Viewer("v", "V");
 
     private ChannelHub hub;
     private Channel channel;
     private FakePanelEndpoint self;
     private CoverPanel panel;
-    private int nextPeer = 0;
 
     @BeforeEach
     void setUp() {
@@ -26,98 +28,14 @@ class FilterCandidatesTest {
         panel = new CoverPanel(hub, ChannelType.ITEM, self, new Random(1));
     }
 
-    private void connectSelf(InteractionState state) {
+    private void connectSelf() {
         self.connect(channel.id(), "");
-        self.config.setState(state);
-    }
-
-    /** 同频道的另一端：给定交互状态和名单内容。 */
-    private EndpointConfig peer(Channel target, InteractionState state, boolean whitelist, String... keys) {
-        EndpointConfig config = new EndpointConfig();
-        config.setState(state);
-        config.filter()
-            .setWhitelist(whitelist);
-        for (String key : keys) {
-            config.filter()
-                .add(key);
-        }
-        FakeMachine machine = new FakeMachine("peer" + nextPeer, 1000);
-        hub.connect(target.id(), "peer-" + nextPeer++, machine.location, "", config, machine, null);
-        return config;
+        self.config.setState(InteractionState.INPUT);
     }
 
     @Test
-    void 输入端汇总各输出端的白名单() {
-        connectSelf(InteractionState.INPUT);
-        peer(channel, InteractionState.OUTPUT, true, "b", "a");
-        peer(channel, InteractionState.OUTPUT, true, "a", "c");
-        peer(channel, InteractionState.INPUT, true, "同为输入不算");
-
-        assertEquals(
-            Arrays.asList("a", "b", "c"),
-            panel.filterCandidates()
-                .peers());
-    }
-
-    @Test
-    void 输出端汇总各输入端的白名单() {
-        connectSelf(InteractionState.OUTPUT);
-        peer(channel, InteractionState.INPUT, true, "a");
-        peer(channel, InteractionState.OUTPUT, true, "同为输出不算");
-
-        assertEquals(
-            Collections.singletonList("a"),
-            panel.filterCandidates()
-                .peers());
-    }
-
-    @Test
-    void 未加载的对端也能汇总保存时的白名单() {
-        connectSelf(InteractionState.INPUT);
-        EndpointConfig saved = new EndpointConfig();
-        saved.setState(InteractionState.OUTPUT);
-        saved.filter()
-            .add("a");
-        hub.restoreEndpoint("远端", channel.id(), 99, new FakeMachine("远端", 1).location, "", "", saved);
-
-        assertEquals(
-            Collections.singletonList("a"),
-            panel.filterCandidates()
-                .peers());
-    }
-
-    @Test
-    void 对端黑名单和其他频道不算候选() {
-        connectSelf(InteractionState.INPUT);
-        peer(channel, InteractionState.OUTPUT, false, "黑名单项");
-        peer(hub.createChannel(ChannelType.ITEM, "别的频道"), InteractionState.OUTPUT, true, "别的频道项");
-
-        assertTrue(
-            panel.filterCandidates()
-                .peers()
-                .isEmpty());
-    }
-
-    @Test
-    void 空状态或未连接时没有对端来源() {
-        assertTrue(
-            panel.filterCandidates()
-                .peers()
-                .isEmpty(),
-            "未连接");
-
-        connectSelf(InteractionState.EMPTY);
-        peer(channel, InteractionState.OUTPUT, true, "a");
-        peer(channel, InteractionState.INPUT, true, "b");
-        assertTrue(
-            panel.filterCandidates()
-                .peers()
-                .isEmpty(),
-            "空状态");
-    }
-
-    @Test
-    void 本机存储不要求连接频道且每种一项() {
+    void 本机存储每种一项() {
+        connectSelf();
         self.machine.with("water", 100L)
             .with("lava", 5L);
 
@@ -128,25 +46,32 @@ class FilterCandidatesTest {
     }
 
     @Test
-    void 已在名单的不再作为候选() {
-        connectSelf(InteractionState.INPUT);
-        self.config.filter()
-            .add("a");
-        peer(channel, InteractionState.OUTPUT, true, "a", "b");
+    void 未连接频道时没有候选() {
+        self.machine.with("water", 100L);
+
+        assertTrue(
+            panel.filterCandidates()
+                .stored()
+                .isEmpty());
+    }
+
+    @Test
+    void 已在频道名单的不再作为候选() {
+        connectSelf();
+        hub.addFilterKey(channel.id(), "a");
         self.machine.with("a", 1L)
             .with("c", 1L);
 
-        FilterCandidates candidates = panel.filterCandidates();
-        assertEquals(Collections.singletonList("b"), candidates.peers());
-        assertEquals(Collections.singletonList("c"), candidates.stored());
+        assertEquals(
+            Collections.singletonList("c"),
+            panel.filterCandidates()
+                .stored());
     }
 
     @Test
     void 不匹配NBT时只差NBT的物体算同一种() {
-        self.config.filter()
-            .setMatchNbt(false);
-        self.config.filter()
-            .add("stick@0");
+        connectSelf();
+        hub.addFilterKey(channel.id(), "stick@0");
         self.machine.with("stick@0#{a:1}", 1L)
             .with("axe@0#{a:1}", 1L)
             .with("axe@0#{a:2}", 1L);
@@ -156,8 +81,7 @@ class FilterCandidatesTest {
             panel.filterCandidates()
                 .stored());
 
-        self.config.filter()
-            .setMatchNbt(true);
+        hub.setFilterMatchNbt(channel.id(), true);
         assertEquals(
             Arrays.asList("stick@0#{a:1}", "axe@0#{a:1}", "axe@0#{a:2}"),
             panel.filterCandidates()
@@ -168,14 +92,13 @@ class FilterCandidatesTest {
     @Test
     void 能量类型没有名单也就没有候选() {
         self.machine.with("eu", 100L);
+        Channel energyChannel = hub.createChannel(ChannelType.ENERGY, "电");
         CoverPanel energy = new CoverPanel(hub, ChannelType.ENERGY, self, new Random(1));
+        self.connect(energyChannel.id(), "");
 
-        FilterCandidates candidates = energy.filterCandidates();
         assertTrue(
-            candidates.peers()
-                .isEmpty());
-        assertTrue(
-            candidates.stored()
+            energy.filterCandidates()
+                .stored()
                 .isEmpty());
     }
 
@@ -185,15 +108,14 @@ class FilterCandidatesTest {
         FakePanelEndpoint tank = new FakePanelEndpoint(hub, "tank", new FakeMachine("tank", 1000).with("lava", 5L));
         tank.connect(fluid.id(), "");
         tank.config.setState(InteractionState.OUTPUT);
-        peer(fluid, InteractionState.INPUT, true, "water");
 
         FilterCandidates candidates = new CoverPanel(hub, ChannelType.FLUID, tank, new Random(1)).filterCandidates();
-        assertEquals(Collections.singletonList("water"), candidates.peers());
         assertEquals(Collections.singletonList("lava"), candidates.stored());
     }
 
     @Test
     void 候选数量有上限() {
+        connectSelf();
         for (int i = 0; i < CoverPanel.MAX_FILTER_CANDIDATES + 5; i++) {
             self.machine.with("k" + i, 1L);
         }
@@ -206,39 +128,48 @@ class FilterCandidatesTest {
     }
 
     @Test
-    void 一次加入多项时已有的不重复且只通知一次() {
-        self.config.filter()
-            .add("a");
+    void 一次加入多项时已有的不重复_加入的是频道名单() {
+        connectSelf();
+        hub.addFilterKey(channel.id(), "a");
 
-        int added = panel.addFilterKeys(Arrays.asList("a", "b", "b", "c"));
+        PanelNotice notice = panel.addFilterKeys(VIEWER, Arrays.asList("a", "b", "b", "c"));
 
-        assertEquals(2, added);
+        assertEquals(new PanelNotice("filter_added", "2", false), notice);
         assertEquals(
             3,
-            self.config.filter()
+            channel.filter()
                 .keys()
                 .size());
-        assertEquals(1, self.configChanges);
-        assertEquals(new PanelNotice("filter_added", "2", false), panel.notice());
+        assertEquals(notice, panel.notice());
+        assertEquals(0, self.configChanges, "名单不属于覆盖板");
     }
 
     @Test
     void 不匹配NBT时加入只差NBT的物体不算新增() {
-        self.config.filter()
-            .add("axe@0");
+        connectSelf();
+        hub.addFilterKey(channel.id(), "axe@0");
 
-        assertEquals(0, panel.addFilterKeys(Collections.singletonList("axe@0#{a:1}")));
-        assertEquals(0, self.configChanges);
-        assertEquals(new PanelNotice("filter_added_none", "", false), panel.notice());
+        PanelNotice notice = panel.addFilterKeys(VIEWER, Collections.singletonList("axe@0#{a:1}"));
+
+        assertEquals(new PanelNotice("filter_added_none", "", false), notice);
+        assertEquals(
+            1,
+            channel.filter()
+                .keys()
+                .size());
     }
 
     @Test
     void 能量类型不接受加入() {
+        Channel energyChannel = hub.createChannel(ChannelType.ENERGY, "电");
         CoverPanel energy = new CoverPanel(hub, ChannelType.ENERGY, self, new Random(1));
+        self.connect(energyChannel.id(), "");
 
-        assertEquals(0, energy.addFilterKeys(Collections.singletonList("a")));
         assertTrue(
-            self.config.filter()
+            energy.addFilterKeys(VIEWER, Collections.singletonList("a"))
+                .isError());
+        assertTrue(
+            energyChannel.filter()
                 .keys()
                 .isEmpty());
     }

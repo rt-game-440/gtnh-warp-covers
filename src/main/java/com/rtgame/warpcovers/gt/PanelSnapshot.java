@@ -18,7 +18,6 @@ import com.rtgame.warpcovers.core.CreateFailure;
 import com.rtgame.warpcovers.core.DisconnectReason;
 import com.rtgame.warpcovers.core.DistributionMode;
 import com.rtgame.warpcovers.core.Endpoint;
-import com.rtgame.warpcovers.core.EndpointConfig;
 import com.rtgame.warpcovers.core.EndpointStatus;
 import com.rtgame.warpcovers.core.FilterCandidates;
 import com.rtgame.warpcovers.core.FilterList;
@@ -62,6 +61,19 @@ public final class PanelSnapshot {
             tag.setString("o", channel.ownerName());
             tag.setBoolean("m", mine.equals(channel.ownerId()));
             tag.setString("nt", channel.note());
+            if (channel.type()
+                .hasFilter()) {
+                // 频道页每行只显示名单的概要；完整名单在配置面板打开时单独同步
+                tag.setBoolean(
+                    "fw",
+                    channel.filter()
+                        .isWhitelist());
+                tag.setInteger(
+                    "fc",
+                    channel.filter()
+                        .keys()
+                        .size());
+            }
             writeAccess(panel.hub(), viewer, channel, tag);
             list.appendTag(tag);
         }
@@ -144,10 +156,17 @@ public final class PanelSnapshot {
         }
     }
 
-    /** 设置页：过滤名单。 */
-    public static NBTTagCompound filter(EndpointConfig config) {
+    /**
+     * 频道配置面板正在看的频道的过滤名单。频道不存在、没有「可见」权限或没有名单（能量）时是空的默认名单；
+     * 完整名单只在配置面板打开时同步，频道页每行只带概要（见 {@link #channels}）。
+     */
+    public static NBTTagCompound filter(ChannelHub hub, Viewer viewer, String channelId) {
         NBTTagCompound root = new NBTTagCompound();
-        FilterList filter = config.filter();
+        root.setString("ch", channelId);
+        Channel channel = channelId.isEmpty() ? null : hub.findChannel(channelId);
+        FilterList filter = channel != null && channel.type()
+            .hasFilter() && hub.hasPermission(viewer.playerId(), channel, Permission.VIEW) ? channel.filter()
+                : Channel.defaultFilter();
         root.setBoolean("wl", filter.isWhitelist());
         root.setBoolean("nbt", filter.matchNbt());
         NBTTagList keys = new NBTTagList();
@@ -220,13 +239,12 @@ public final class PanelSnapshot {
     /** 快捷配置的候选。 */
     public static NBTTagCompound candidates(FilterCandidates candidates) {
         NBTTagCompound root = new NBTTagCompound();
-        root.setTag("peers", stringList(candidates.peers()));
         root.setTag("stored", stringList(candidates.stored()));
         return root;
     }
 
     public static FilterCandidates parseCandidates(NBTTagCompound root) {
-        return new FilterCandidates(readStrings(root, "peers"), readStrings(root, "stored"));
+        return new FilterCandidates(readStrings(root, "stored"));
     }
 
     /** 状态栏：当前状态、最近断开原因、最近一次操作反馈。 */
@@ -273,7 +291,10 @@ public final class PanelSnapshot {
                         !tag.getBoolean("hid"),
                         tag.getInteger("in"),
                         tag.getInteger("out"),
-                        readStrings(tag, "tags")));
+                        readStrings(tag, "tags"),
+                        tag.hasKey("fw") || tag.hasKey("fc"),
+                        tag.getBoolean("fw"),
+                        tag.getInteger("fc")));
             }
         }
         String current = root == null ? "" : root.getString("cur");
@@ -286,9 +307,17 @@ public final class PanelSnapshot {
             root == null ? "" : root.getString("tf"));
     }
 
+    /** 解析名单快照；快照不是这个频道的（刚打开配置面板、服务端还没切过来）时按默认的空黑名单处理。 */
+    public static FilterView parseFilter(NBTTagCompound root, String channelId) {
+        if (root == null || !channelId.equals(root.getString("ch"))) {
+            return new FilterView(false, false, new ArrayList<String>());
+        }
+        return parseFilter(root);
+    }
+
     public static FilterView parseFilter(NBTTagCompound root) {
         List<String> keys = new ArrayList<String>();
-        boolean whitelist = true;
+        boolean whitelist = false;
         boolean matchNbt = false;
         if (root != null) {
             if (root.hasKey("wl")) {
@@ -356,10 +385,18 @@ public final class PanelSnapshot {
         public final int outputs;
         /** 查看者自己的私人标签。 */
         public final List<String> tags;
+        /** 频道是否有过滤名单（能量没有）。 */
+        public final boolean hasFilter;
+        public final boolean filterWhitelist;
+        public final int filterCount;
 
         ChannelRow(String id, String name, int color, String ownerName, boolean mine, String note, boolean canConfigure,
             boolean canDelete, DistributionMode distribution, ChannelPermissions permissions, int createMask,
-            ChannelGroup group, boolean shown, int inputs, int outputs, List<String> tags) {
+            ChannelGroup group, boolean shown, int inputs, int outputs, List<String> tags, boolean hasFilter,
+            boolean filterWhitelist, int filterCount) {
+            this.hasFilter = hasFilter;
+            this.filterWhitelist = filterWhitelist;
+            this.filterCount = filterCount;
             this.group = group;
             this.shown = shown;
             this.inputs = inputs;
@@ -382,9 +419,9 @@ public final class PanelSnapshot {
             return permissions != null;
         }
 
-        /** 有任何一项可编辑的内容时才显示齿轮。 */
+        /** 有任何一项可编辑的内容时显示齿轮；有过滤名单的频道对所有人显示，没有权限的人在里面只读。 */
         public boolean hasConfigPanel() {
-            return canConfigure || canDelete || canManage();
+            return canConfigure || canDelete || canManage() || hasFilter;
         }
 
         public boolean canEditCreate() {

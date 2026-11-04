@@ -25,12 +25,12 @@ import com.rtgame.warpcovers.selfcheck.ItemChannelScenario;
 import com.rtgame.warpcovers.selfcheck.OwnershipScenario;
 import com.rtgame.warpcovers.selfcheck.PersistenceScenario;
 import com.rtgame.warpcovers.selfcheck.QuickFilterScenario;
+import com.rtgame.warpcovers.selfcheck.RecipesScenario;
 import com.rtgame.warpcovers.selfcheck.RemoteManagerScenario;
 import com.rtgame.warpcovers.selfcheck.SelfCheckCommand;
 import com.rtgame.warpcovers.selfcheck.SelfCheckLog;
 import com.rtgame.warpcovers.selfcheck.SelfCheckLogDir;
 import com.rtgame.warpcovers.selfcheck.SelfCheckRunner;
-import com.rtgame.warpcovers.selfcheck.RecipesScenario;
 import com.rtgame.warpcovers.selfcheck.SelfCheckScenario;
 import com.rtgame.warpcovers.selfcheck.TypeSwitchScenario;
 

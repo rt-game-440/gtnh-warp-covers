@@ -73,8 +73,6 @@ public final class DistributionScenario implements SelfCheckScenario {
         FluidWarpCover coverLow2 = attachCover(low2, ForgeDirection.UP);
         for (FluidWarpCover cover : new FluidWarpCover[] { in, coverHigh, coverLow1, coverLow2 }) {
             cover.connect(channel.id(), "selfcheck");
-            cover.filter()
-                .add("water");
         }
         in.setInteractionState(InteractionState.INPUT);
         coverHigh.setInteractionState(InteractionState.OUTPUT);

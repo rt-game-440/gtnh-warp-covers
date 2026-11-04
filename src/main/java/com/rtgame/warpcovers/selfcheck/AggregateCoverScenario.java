@@ -106,12 +106,7 @@ public final class AggregateCoverScenario implements SelfCheckScenario {
         connect(srcEnergy, energy, InteractionState.OUTPUT);
         connect(batteryEnergy, energy, InteractionState.INPUT);
         String stick = ItemKeys.of(new ItemStack(Items.stick));
-        srcItem.config()
-            .filter()
-            .add(stick);
-        dstItem.config()
-            .filter()
-            .add(stick);
+        setFilter(hub, item, true, false, stick);
         check(
             "三个连接端的 ID 应各不相同",
             !srcItem.endpointId()
@@ -136,14 +131,7 @@ public final class AggregateCoverScenario implements SelfCheckScenario {
         AggregateWarpCover tankDstCover = attachAggregateCover(tankDst, ForgeDirection.UP);
         connect(tankSrcCover.part(ChannelType.FLUID), fluid, InteractionState.INPUT);
         connect(tankDstCover.part(ChannelType.FLUID), fluid, InteractionState.OUTPUT);
-        tankSrcCover.part(ChannelType.FLUID)
-            .config()
-            .filter()
-            .add("water");
-        tankDstCover.part(ChannelType.FLUID)
-            .config()
-            .filter()
-            .add("water");
+        setFilter(hub, fluid, true, false, "water");
         pour(tankSrc, 1000);
 
         long now = 1_000_000_000L;
@@ -161,6 +149,16 @@ public final class AggregateCoverScenario implements SelfCheckScenario {
         // 界面在服务端构建不应报错（构建时同步管理器还没绑定容器，曾因此打开就崩溃）
         buildGui(srcCover, src, ForgeDirection.UP);
         buildGui(attachCover(tankDst, ForgeDirection.NORTH), tankDst, ForgeDirection.NORTH);
+        // 频道配置面板（含名单区）和各弹窗平时只在客户端点击时才构建，这里在服务端各构建一次抓构建期错误
+        WarpCoverGui
+            .selfCheckBuildDialogs(srcCover, FakePlayerFactory.getMinecraft(world(0)), ChannelType.ITEM, item.id());
+        WarpCoverGui.selfCheckBuildDialogs(
+            tankSrcCover,
+            FakePlayerFactory.getMinecraft(world(0)),
+            ChannelType.FLUID,
+            fluid.id());
+        WarpCoverGui
+            .selfCheckBuildDialogs(srcCover, FakePlayerFactory.getMinecraft(world(0)), ChannelType.ENERGY, energy.id());
 
         // 导线：能量部分停用并说明原因，流体部分正常
         IGregTechTileEntity cable = placeMachine(
@@ -211,10 +209,8 @@ public final class AggregateCoverScenario implements SelfCheckScenario {
                 .config()
                 .rate() == THIRD_RATE);
         check(
-            "物品化后物品部分的名单应保留",
-            restored.part(ChannelType.ITEM)
-                .config()
-                .filter()
+            "物品化后物品频道的名单应保留（名单在频道上）",
+            item.filter()
                 .keys()
                 .contains(stick));
         check(
