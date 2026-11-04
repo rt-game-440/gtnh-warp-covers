@@ -239,6 +239,51 @@ class CoverPanelTest {
     }
 
     @Test
+    void 切换的反馈说明换到了哪个频道() {
+        Channel first = create(ALICE, "一");
+        Channel second = create(ALICE, "二");
+        panel.toggleConnection(ALICE, first.id());
+
+        assertEquals(new PanelNotice("switched", "二", false), panel.toggleConnection(ALICE, second.id()));
+    }
+
+    @Test
+    void 连接按钮的操作跟随当前连接() {
+        Channel first = create(ALICE, "一");
+        Channel second = create(ALICE, "二");
+
+        assertEquals(ConnectionAction.CONNECT, panel.connectionAction(first.id()));
+        panel.toggleConnection(ALICE, first.id());
+        assertEquals(ConnectionAction.DISCONNECT, panel.connectionAction(first.id()));
+        assertEquals(ConnectionAction.SWITCH, panel.connectionAction(second.id()));
+    }
+
+    @Test
+    void 连点连接按钮不会把刚连上的频道断开() {
+        Channel channel = create(ALICE, "主网");
+
+        assertEquals(
+            "connected",
+            panel.applyConnection(ALICE, channel.id(), ConnectionAction.CONNECT)
+                .key());
+        assertNull(panel.applyConnection(ALICE, channel.id(), ConnectionAction.CONNECT), "第二下基于过期的按钮状态，应忽略");
+
+        assertEquals(channel.id(), endpoint.channelId);
+    }
+
+    @Test
+    void 连接按钮按当前状态执行断开() {
+        Channel channel = create(ALICE, "主网");
+        panel.applyConnection(ALICE, channel.id(), ConnectionAction.CONNECT);
+
+        assertEquals(
+            "disconnected",
+            panel.applyConnection(ALICE, channel.id(), ConnectionAction.DISCONNECT)
+                .key());
+        assertEquals("", endpoint.channelId);
+    }
+
+    @Test
     void 连接不存在或类型不符的频道报错() {
         Channel item = hub.createChannel(ChannelType.ITEM, "物品");
 

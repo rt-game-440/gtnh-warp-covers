@@ -35,6 +35,7 @@ import com.cleanroommc.modularui.drawable.ItemDrawable;
 import com.cleanroommc.modularui.drawable.Rectangle;
 import com.cleanroommc.modularui.network.NetworkUtils;
 import com.cleanroommc.modularui.screen.ModularPanel;
+import com.cleanroommc.modularui.screen.UISettings;
 import com.cleanroommc.modularui.utils.Alignment;
 import com.cleanroommc.modularui.utils.serialization.ByteBufAdapters;
 import com.cleanroommc.modularui.value.BoolValue;
@@ -52,6 +53,7 @@ import com.cleanroommc.modularui.widgets.ListWidget;
 import com.cleanroommc.modularui.widgets.PageButton;
 import com.cleanroommc.modularui.widgets.PagedWidget;
 import com.cleanroommc.modularui.widgets.ScrollingTextWidget;
+import com.cleanroommc.modularui.widgets.SlotGroupWidget;
 import com.cleanroommc.modularui.widgets.ToggleButton;
 import com.cleanroommc.modularui.widgets.layout.Flow;
 import com.cleanroommc.modularui.widgets.textfield.TextFieldWidget;
@@ -62,6 +64,8 @@ import com.rtgame.warpcovers.core.ChannelColors;
 import com.rtgame.warpcovers.core.ChannelGroup;
 import com.rtgame.warpcovers.core.ChannelHub;
 import com.rtgame.warpcovers.core.ChannelType;
+import com.rtgame.warpcovers.core.ConnectionAction;
+import com.rtgame.warpcovers.core.DualPaneLayout;
 import com.rtgame.warpcovers.core.CoverPanel;
 import com.rtgame.warpcovers.core.CreateFailure;
 import com.rtgame.warpcovers.core.DistributionMode;
@@ -83,7 +87,8 @@ import gregtech.api.modularui2.GTGuiTextures;
 import gregtech.common.gui.modularui.cover.base.CoverBaseGui;
 
 /**
- * 折跃覆盖板界面：单类型覆盖板的左侧边栏是「频道」「设置」两页；聚合覆盖板是流体、物品、能量频道和按类型分段的设置。底部状态栏。
+ * 折跃覆盖板界面。单类型覆盖板是双栏：左栏频道列表、状态栏、玩家背包，右栏是选中频道的配置面板，连接操作都在右栏顶部。
+ * 聚合覆盖板和折跃频道管理器暂时还是旧的单栏：左侧边栏切频道和设置页，点频道直接连接或打开配置（#21、#22 改造）。
  * 设置页只有输出优先级、速率、运行周期；过滤名单属于频道，在频道配置面板（齿轮）里编辑，覆盖板和折跃频道管理器用同一套。
  * 服务端按玩家构建快照（{@link PanelSnapshot}）同步给客户端，客户端的每个操作都是发往服务端的请求，
  * 由 {@link CoverPanel} 校验后执行，结果随下一次快照回到界面。
@@ -154,6 +159,35 @@ public final class WarpCoverGui extends CoverBaseGui<BaseWarpCover> {
     /** 聚合覆盖板设置页顶部的类型切换按钮高度。 */
     private static final int SEGMENT_H = 16;
 
+    /** 双栏布局里固定的部分；随屏幕变化的尺寸见 {@link DualPaneLayout}。 */
+    private static final int INVENTORY_W = 162;
+    private static final int INVENTORY_H = 76;
+    private static final int STATUS_H = 22;
+    private static final int LEFT_GAP = 3;
+    /** 右栏顶部：色块、频道名、连接状态，下面是连接按钮。 */
+    private static final int PANE_SWATCH = 10;
+    private static final int PANE_BUTTON_Y = 23;
+    /** 文件夹式分页：标签比卡片上沿多压 1 像素。 */
+    private static final int TAB_Y = 39;
+    private static final int TAB_H = 15;
+    private static final int TAB_W_SHORT = 28;
+    private static final int TAB_W_LONG = 44;
+    private static final int TAB_SLOTS = 4;
+    private static final int CARD_Y = TAB_Y + TAB_H - 1;
+    private static final int CARD_PADDING = 4;
+    /** 「连接」分页：交互状态一组，传输一组（文字在左、数字框在右）。 */
+    private static final int STATE_BUTTON_Y = 11;
+    private static final int TRANSFER_LABEL_Y = 30;
+    private static final int TRANSFER_ROW_Y = 41;
+    private static final int TRANSFER_ROW_H = 16;
+    private static final int TRANSFER_FIELD_MIN_W = 48;
+    private static final int CONNECT_HINT_Y = 88;
+    private static final int ENERGY_NOTES_Y = 100;
+    private static final long CONNECTION_CLICK_COOLDOWN_MS = 500;
+    private static final int CONNECTED_COLOR = 0xFF1E8A1E;
+    private static final int CONNECTED_ROW_COLOR = 0xFF90F090;
+    private static final int PICKED_FRAME = 0xFF40C8FF;
+
     private static final InteractionState[] STATES = { InteractionState.INPUT, InteractionState.OUTPUT,
         InteractionState.EMPTY };
 
@@ -168,15 +202,47 @@ public final class WarpCoverGui extends CoverBaseGui<BaseWarpCover> {
 
     @Override
     protected boolean doesBindPlayerInventory() {
-        // 名单靠光标上的物品或流体容器添加，需要能从背包拿起
-        return true;
+        // 名单靠光标上的物品或流体容器添加，需要能从背包拿起；双栏界面把背包放进左栏，不用基类放在底部的那份
+        return !isDualPane();
+    }
+
+    @Override
+    protected void addTitleToUI(Flow row, CoverGuiData data) {
+        // 双栏界面的高度要留给右栏，频道名已经在面板顶部；空行由 createBasePanel 折叠
+        if (isDualPane()) {
+            row.setEnabled(false);
+        } else {
+            super.addTitleToUI(row, data);
+        }
+    }
+
+    @Override
+    protected ModularPanel createBasePanel(PanelSyncManager syncManager, UISettings uiSettings, CoverGuiData data) {
+        ModularPanel panel = super.createBasePanel(syncManager, uiSettings, data);
+        if (isDualPane()) {
+            // 空行设高度 0 不管用，仍占 8 像素，只有禁用并折叠才不占位
+            ((Flow) panel.getChildren()
+                .get(0)).collapseDisabledChild();
+        }
+        return panel;
+    }
+
+    private boolean isDualPane() {
+        return cover.parts()
+            .size() == 1;
     }
 
     @Override
     public void addUIWidgets(PanelSyncManager syncManager, Flow column, CoverGuiData data) {
         List<WarpPart> parts = cover.parts();
         if (parts.size() == 1) {
-            column.child(new Session(syncManager, data.getPlayer(), parts.get(0), "warpcovers_", PAGE_H).build());
+            column.child(
+                new Session(syncManager, data.getPlayer(), parts.get(0), "warpcovers_", PAGE_H)
+                    .buildDualPane(
+                        data.isPopUp(),
+                        // 服务端的控件只用来同步，尺寸不起作用
+                        data.getPlayer().worldObj.isRemote ? ClientScreen.dualPaneLayout()
+                            : DualPaneLayout.minimum()));
         } else {
             column.child(aggregateRoot(syncManager, data.getPlayer(), parts));
         }
@@ -258,7 +324,7 @@ public final class WarpCoverGui extends CoverBaseGui<BaseWarpCover> {
         pages.addPage(settings);
         root.child(pages);
 
-        addStatusBar(root, STATUS_Y, () -> {
+        addStatusBar(root, STATUS_Y, ROOT_W, () -> {
             int page = controller.isInitialised() ? controller.getActivePageIndex() : 0;
             if (page < sessions.size()) {
                 return sessions.get(page);
@@ -349,7 +415,7 @@ public final class WarpCoverGui extends CoverBaseGui<BaseWarpCover> {
             pages.addPage(session.editorPage());
         }
         root.child(pages);
-        addStatusBar(root, MANAGER_PAGE_H + 4, () -> {
+        addStatusBar(root, MANAGER_PAGE_H + 4, ROOT_W, () -> {
             int page = controller.isInitialised() ? controller.getActivePageIndex() : 0;
             return sessions.get(page % types.length);
         });
@@ -367,14 +433,14 @@ public final class WarpCoverGui extends CoverBaseGui<BaseWarpCover> {
         }
     }
 
-    private void addStatusBar(ParentWidget<?> root, int y, Supplier<Session> active) {
+    private void addStatusBar(ParentWidget<?> root, int y, int width, Supplier<Session> active) {
         root.child(
             IKey.dynamic(
                 () -> active.get()
                     .statusLine())
                 .asWidget()
                 .pos(0, y)
-                .size(ROOT_W, 10)
+                .size(width, 10)
                 .color(TEXT_COLOR));
         root.child(
             IKey.dynamic(
@@ -382,14 +448,10 @@ public final class WarpCoverGui extends CoverBaseGui<BaseWarpCover> {
                     .detailLine())
                 .asWidget()
                 .pos(0, y + 12)
-                .size(ROOT_W, 10)
+                .size(width, 10)
                 .color(
                     () -> active.get()
                         .detailIsError() ? ERROR_COLOR : TEXT_COLOR));
-    }
-
-    private PageButton tab(int index, PagedWidget.Controller controller, IDrawable icon, String tooltipKey) {
-        return tab(index, controller, icon, tooltipKey, () -> false);
     }
 
     private PageButton tab(int index, PagedWidget.Controller controller, IDrawable icon, String tooltipKey,
@@ -434,8 +496,18 @@ public final class WarpCoverGui extends CoverBaseGui<BaseWarpCover> {
         /** 折跃频道管理器的会话：频道页没有连接操作，配置面板多一个连接端列表。 */
         private final boolean manager;
         private final RemoteEndpoint remote;
-        /** 频道页高度：管理器界面更高。 */
-        private final int channelsH;
+        /** 频道页高度：管理器界面更高，双栏界面在构建时改。 */
+        private int channelsH;
+        /** 频道页宽度：双栏界面的左栏更宽。 */
+        private int pageW = PAGE_W;
+        /** 只有双栏界面才有。 */
+        private DualPaneLayout layout;
+        /** 单类型覆盖板的双栏界面：点频道只是选中，连接操作在右栏顶部。 */
+        private boolean dualPane;
+        /** 双栏界面选中的频道（只在客户端）；没选时跟随已连接的频道。 */
+        private String pickedId = "";
+        private String lastConnectedId = "";
+        private long lastConnectionClick;
         /** 同步键前缀：聚合覆盖板的三个会话不能互相冲突。 */
         private final String syncPrefix;
         /** 设置页高度：聚合覆盖板要给顶部的类型切换让位。 */
@@ -545,6 +617,7 @@ public final class WarpCoverGui extends CoverBaseGui<BaseWarpCover> {
             sync.syncValue(syncPrefix + "endpoints", endpointsValue);
             sync.syncValue(syncPrefix + "selected", selectedValue);
             sync.syncValue(syncPrefix + "status", status);
+            // 数字框要把改动发回服务端，这版 ModularUI2 默认不允许，必须 allowC2S
             priority = new LongSyncValue(
                 () -> client ? 0
                     : endpoint.config()
@@ -553,7 +626,7 @@ public final class WarpCoverGui extends CoverBaseGui<BaseWarpCover> {
                     if (!client) {
                         panel.setPriority((int) NumberInput.clamp(value, Integer.MIN_VALUE, Integer.MAX_VALUE));
                     }
-                });
+                }).allowC2S();
             rate = new LongSyncValue(
                 () -> client ? 0
                     : endpoint.config()
@@ -562,7 +635,7 @@ public final class WarpCoverGui extends CoverBaseGui<BaseWarpCover> {
                     if (!client) {
                         panel.setRate(value);
                     }
-                });
+                }).allowC2S();
             period = new LongSyncValue(
                 () -> client ? 0
                     : endpoint.config()
@@ -571,7 +644,7 @@ public final class WarpCoverGui extends CoverBaseGui<BaseWarpCover> {
                     if (!client) {
                         panel.setPeriod((int) NumberInput.clamp(value, 0, Integer.MAX_VALUE));
                     }
-                });
+                }).allowC2S();
             effectiveRate = new LongSyncValue(() -> client ? 0 : panel.effectiveRate());
             effectivePeriod = new LongSyncValue(() -> client ? 0 : panel.effectivePeriod());
             sync.syncValue(syncPrefix + "priority", priority);
@@ -586,6 +659,13 @@ public final class WarpCoverGui extends CoverBaseGui<BaseWarpCover> {
                 panel.createChannel(viewer, name, connect && !manager);
             });
             action("toggle", buf -> panel.toggleConnection(viewer, NetworkUtils.readStringSafe(buf)));
+            if (!manager) {
+                action("connection", buf -> {
+                    String channelId = NetworkUtils.readStringSafe(buf);
+                    ConnectionAction expected = ConnectionAction.valueOf(NetworkUtils.readStringSafe(buf));
+                    panel.applyConnection(viewer, channelId, expected);
+                });
+            }
             action("state", buf -> {
                 InteractionState state = parseState(NetworkUtils.readStringSafe(buf));
                 if (state != null) {
@@ -637,39 +717,287 @@ public final class WarpCoverGui extends CoverBaseGui<BaseWarpCover> {
             sync.callSyncedAction(syncPrefix + key, writer);
         }
 
-        IWidget build() {
+        /** @param popUp 从机器界面点开：机器界面已经有背包，左栏不再放，频道列表占满 */
+        IWidget buildDualPane(boolean popUp, DualPaneLayout layout) {
+            dualPane = true;
+            this.layout = layout;
+            pageW = layout.leftW;
+            int reserved = popUp ? 0 : INVENTORY_H + LEFT_GAP;
+            channelsH = layout.height - reserved - STATUS_H - LEFT_GAP;
+
             ParentWidget<?> root = new ParentWidget<>();
-            root.size(ROOT_W, ROOT_H);
+            root.size(layout.width, layout.height);
+            root.child(channelsPage());
+            addStatusBar(root, channelsH + LEFT_GAP, layout.leftW, () -> this);
+            if (!popUp) {
+                root.child(
+                    SlotGroupWidget.playerInventory(false)
+                        .pos((layout.leftW - INVENTORY_W) / 2, layout.height - INVENTORY_H));
+            }
+            root.child(rightPane());
+            return root;
+        }
 
+        // ---- 双栏界面的右栏 ----
+
+        private int cardH() {
+            return layout.height - CARD_Y;
+        }
+
+        private int cardInnerW() {
+            return layout.rightW - 2 * CARD_PADDING;
+        }
+
+        private int cardInnerH() {
+            return cardH() - 2 * CARD_PADDING;
+        }
+
+        /** 选中的频道；当前连接变化时（如新建并连接）选中跟过去。没有选中或频道已不可见时为 null。 */
+        private PanelSnapshot.ChannelRow pickedRow() {
+            PanelSnapshot.ChannelsView view = channelsView();
+            if (!view.currentId.equals(lastConnectedId)) {
+                lastConnectedId = view.currentId;
+                if (!lastConnectedId.isEmpty()) {
+                    pickedId = lastConnectedId;
+                }
+            }
+            return view.row(pickedId);
+        }
+
+        private boolean isPicked(String channelId) {
+            PanelSnapshot.ChannelRow picked = pickedRow();
+            return picked != null && picked.id.equals(channelId);
+        }
+
+        private boolean pickedIsConnected() {
+            PanelSnapshot.ChannelRow picked = pickedRow();
+            return picked != null && channelsView().isConnected(picked.id);
+        }
+
+        private ConnectionAction pickedAction() {
+            return ConnectionAction.of(channelsView().currentId, pickedId);
+        }
+
+        private String paneStatus() {
+            PanelSnapshot.ChannelsView view = channelsView();
+            if (pickedIsConnected()) {
+                return tr("warpcovers.gui.pane.connected");
+            }
+            PanelSnapshot.ChannelRow current = view.row(view.currentId);
+            return current == null ? tr("warpcovers.gui.pane.not_connected")
+                : tr("warpcovers.gui.pane.connected_other", current.name);
+        }
+
+        private IWidget rightPane() {
+            ParentWidget<?> pane = new ParentWidget<>();
+            pane.pos(layout.rightX, 0)
+                .size(layout.rightW, layout.height);
+            pane.child(new DynamicDrawable(() -> {
+                PanelSnapshot.ChannelRow picked = pickedRow();
+                return picked == null ? IDrawable.EMPTY : new Rectangle().color(0xFF000000 | picked.color);
+            }).asWidget()
+                .pos(0, 1)
+                .size(PANE_SWATCH, PANE_SWATCH));
+            pane.child(new ScrollingTextWidget(IKey.dynamic(() -> {
+                PanelSnapshot.ChannelRow picked = pickedRow();
+                return picked == null ? tr("warpcovers.gui.pane.pick") : picked.name;
+            })).pos(PANE_SWATCH + 3, 2)
+                .size(layout.rightW - PANE_SWATCH - 3, 9)
+                .color(TEXT_COLOR));
+            pane.child(
+                new ScrollingTextWidget(IKey.dynamic(() -> pickedRow() == null ? "" : paneStatus()))
+                    .pos(PANE_SWATCH + 3, 12)
+                    .size(layout.rightW - PANE_SWATCH - 3, 9)
+                    .color(() -> pickedIsConnected() ? CONNECTED_COLOR : OWNER_COLOR));
+            pane.child(connectionButton());
+
+            pane.child(
+                PaneStyle.CARD.asWidget()
+                    .pos(0, CARD_Y)
+                    .size(layout.rightW, cardH()));
             PagedWidget.Controller controller = new PagedWidget.Controller();
-            root.child(
-                tab(
-                    0,
-                    controller,
-                    new ItemDrawable(new ItemStack(Items.ender_pearl)).asIcon()
-                        .size(16),
-                    "warpcovers.gui.tab.channels"));
-            root.child(
-                tab(1, controller, GTGuiTextures.OVERLAY_BUTTON_SCREWDRIVER, "warpcovers.gui.tab.settings")
-                    .pos(0, TAB_SIZE + 2));
-
             PagedWidget<?> pages = new PagedWidget<>();
             pages.controller(controller)
-                .pos(PAGE_X, 0)
-                .size(PAGE_W, PAGE_H);
-            pages.addPage(channelsPage());
-            pages.addPage(settingsPage());
-            root.child(pages);
+                .pos(CARD_PADDING, CARD_Y + CARD_PADDING)
+                .size(cardInnerW(), cardInnerH());
+            // 右栏变宽时标签跟着变宽，字不必再挤
+            int tabExtra = (layout.rightW - TAB_W_LONG - 3 * TAB_W_SHORT) / TAB_SLOTS;
+            int shortW = TAB_W_SHORT + tabExtra;
+            int longW = TAB_W_LONG + tabExtra;
+            int x = 0;
+            int index = 0;
+            pages.addPage(connectionPage());
+            pane.child(paneTab(index++, controller, x, shortW, "connection"));
+            x += shortW;
+            if (type.hasFilter()) {
+                pages.addPage(placeholderPage());
+                pane.child(paneTab(index++, controller, x, longW, "filter"));
+                x += longW;
+            }
+            pages.addPage(placeholderPage());
+            pane.child(paneTab(index++, controller, x, shortW, "config"));
+            x += shortW;
+            pages.addPage(placeholderPage());
+            pane.child(paneTab(index, controller, x, shortW, "permission"));
+            pane.child(pages);
+            return pane;
+        }
 
-            addStatusBar(root, STATUS_Y, () -> this);
-            return root;
+        /** 文字随状态变化的连接按钮；请求带上玩家看到的操作，和服务端现状不一致时不执行。 */
+        private IWidget connectionButton() {
+            ButtonWidget<?> button = new ButtonWidget<>();
+            button.pos(0, PANE_BUTTON_Y)
+                .size(layout.rightW, ROW_H)
+                .background(
+                    new DynamicDrawable(
+                        () -> pickedAction() == ConnectionAction.DISCONNECT ? GTGuiTextures.BUTTON_STANDARD
+                            : PaneStyle.GREEN_BUTTON))
+                .overlay(
+                    IKey.dynamic(() -> tr("warpcovers.gui.connection." + lower(pickedAction().name())))
+                        .color(BUTTON_TEXT))
+                .setEnabledIf(w -> pickedRow() != null);
+            button.onMousePressed(mouse -> {
+                PanelSnapshot.ChannelRow picked = pickedRow();
+                if (mouse != 0 || picked == null) {
+                    return false;
+                }
+                // 新快照一两个 tick 就回来，连点的第二下看到的已是相反的操作，服务端分不出是误触，只能在这里拦
+                long now = System.currentTimeMillis();
+                if (now - lastConnectionClick < CONNECTION_CLICK_COOLDOWN_MS) {
+                    return true;
+                }
+                lastConnectionClick = now;
+                ConnectionAction action = pickedAction();
+                send("connection", buf -> {
+                    NetworkUtils.writeStringSafe(buf, picked.id);
+                    NetworkUtils.writeStringSafe(buf, action.name());
+                });
+                return true;
+            });
+            return button;
+        }
+
+        private PageButton paneTab(int index, PagedWidget.Controller controller, int x, int width, String key) {
+            String lang = "warpcovers.gui.pane.tab." + key;
+            // 标签按钮的主题默认带文字阴影，深色字在浅色卡片上会糊成重影
+            IDrawable selected = IKey.lang(lang)
+                .color(TEXT_COLOR)
+                .shadow(false);
+            IDrawable idle = IKey.lang(lang)
+                .color(0xFFC8C8C8);
+            PageButton tab = new PageButton(index, controller);
+            tab.pos(x, TAB_Y)
+                .size(width, TAB_H)
+                .background(true, PaneStyle.TAB_SELECTED)
+                .background(false, PaneStyle.TAB_IDLE)
+                .overlay(
+                    new DynamicDrawable(
+                        () -> controller.isInitialised() && controller.getActivePageIndex() == index ? selected
+                            : idle));
+            return tab;
+        }
+
+        /** 「连接」分页：这块覆盖板自己的设置。没连着选中的频道时整页灰显，点不到。 */
+        private IWidget connectionPage() {
+            ParentWidget<?> page = new ParentWidget<>();
+            page.size(cardInnerW(), cardInnerH());
+            page.child(
+                IKey.lang("warpcovers.gui.pane.state")
+                    .asWidget()
+                    .pos(0, 0)
+                    .size(cardInnerW(), 9)
+                    .color(TEXT_COLOR));
+            int stateW = (cardInnerW() + 1) / STATES.length;
+            for (int i = 0; i < STATES.length; i++) {
+                page.child(paneStateButton(STATES[i], i * stateW, stateW - 1));
+            }
+            page.child(
+                IKey.lang("warpcovers.gui.pane.transfer")
+                    .asWidget()
+                    .pos(0, TRANSFER_LABEL_Y)
+                    .size(cardInnerW(), 9)
+                    .color(TEXT_COLOR));
+            addTransferRow(
+                page,
+                0,
+                "warpcovers.gui.field.priority",
+                priority,
+                Integer.MIN_VALUE,
+                Integer.MAX_VALUE,
+                () -> tr("warpcovers.gui.field.priority_tip"));
+            addTransferRow(page, 1, "warpcovers.gui.field.rate", rate, 0, Long.MAX_VALUE, this::rateTooltip);
+            addTransferRow(page, 2, "warpcovers.gui.field.period", period, 0, Integer.MAX_VALUE, this::periodTooltip);
+            if (!type.hasFilter()) {
+                addEnergyNotes(page, ENERGY_NOTES_Y, cardInnerW());
+            }
+
+            InputBlocker grey = new InputBlocker();
+            grey.pos(0, 0)
+                .size(cardInnerW(), cardInnerH())
+                .background(new Rectangle().color(PaneStyle.GREY_OUT))
+                .setEnabledIf(w -> !pickedIsConnected());
+            grey.child(
+                IKey.lang("warpcovers.gui.pane.connect_first")
+                    .asWidget()
+                    .alignment(Alignment.Center)
+                    .pos(0, CONNECT_HINT_Y)
+                    .size(cardInnerW(), 9)
+                    .color(OWNER_COLOR));
+            page.child(grey);
+            return page;
+        }
+
+        private IWidget paneStateButton(InteractionState state, int x, int width) {
+            ButtonWidget<?> button = new ButtonWidget<>();
+            button.pos(x, STATE_BUTTON_Y)
+                .size(width, ROW_H)
+                .background(
+                    new DynamicDrawable(
+                        () -> pickedIsConnected() && channelsView().state == state ? PaneStyle.GREEN_BUTTON
+                            : GTGuiTextures.BUTTON_STANDARD))
+                .overlay(
+                    IKey.lang(WarpCoverItem.stateKey(state))
+                        .color(BUTTON_TEXT))
+                .addTooltipLine(tr("warpcovers.gui.state_tip." + lower(state.name())));
+            button.onMousePressed(mouse -> {
+                if (mouse != 0) {
+                    return false;
+                }
+                send("state", buf -> NetworkUtils.writeStringSafe(buf, state.name()));
+                return true;
+            });
+            return button;
+        }
+
+        private void addTransferRow(ParentWidget<?> page, int row, String labelKey, LongSyncValue value, long min,
+            long max, Supplier<String> tooltip) {
+            int y = TRANSFER_ROW_Y + row * TRANSFER_ROW_H;
+            int fieldW = Math.max(TRANSFER_FIELD_MIN_W, cardInnerW() * 2 / 5);
+            page.child(
+                IKey.lang(labelKey)
+                    .asWidget()
+                    .pos(0, y + 2)
+                    .size(cardInnerW() - fieldW - 2, 9)
+                    .color(TEXT_COLOR));
+            page.child(
+                numberField(value, min, max, tooltip).pos(cardInnerW() - fieldW, y)
+                    .size(fieldW, 13));
+        }
+
+        /** 还没做的分页：配置和名单先用齿轮弹窗改。 */
+        private IWidget placeholderPage() {
+            return IKey.lang("warpcovers.gui.pane.placeholder")
+                .asWidget()
+                .alignment(Alignment.TopLeft)
+                .size(cardInnerW(), cardInnerH())
+                .color(OWNER_COLOR);
         }
 
         // ---- 频道页 ----
 
         private IWidget channelsPage() {
             ParentWidget<?> page = new ParentWidget<>();
-            page.size(PAGE_W, channelsH);
+            page.size(pageW, channelsH);
 
             ButtonWidget<?> create = new ButtonWidget<>();
             create.pos(0, 0)
@@ -702,7 +1030,7 @@ public final class WarpCoverGui extends CoverBaseGui<BaseWarpCover> {
             DynamicSyncedWidget<?> holder = new DynamicSyncedWidget<>();
             holder.syncHandler(dynamic)
                 .pos(0, ROW_H + 3)
-                .size(PAGE_W, channelsH - ROW_H - 3);
+                .size(pageW, channelsH - ROW_H - 3);
             page.child(holder);
             return page;
         }
@@ -723,7 +1051,7 @@ public final class WarpCoverGui extends CoverBaseGui<BaseWarpCover> {
 
         private IWidget channelList(PanelSnapshot.ChannelsView view) {
             ListWidget<IWidget, ?> list = new ListWidget<>();
-            list.size(PAGE_W, channelsH - ROW_H - 3);
+            list.size(pageW, channelsH - ROW_H - 3);
             boolean any = false;
             ChannelGroup lastGroup = null;
             for (PanelSnapshot.ChannelRow row : view.rows) {
@@ -737,11 +1065,11 @@ public final class WarpCoverGui extends CoverBaseGui<BaseWarpCover> {
                     list.child(
                         IKey.lang("warpcovers.gui.group." + row.group.key())
                             .asWidget()
-                            .size(ROW_W, 10)
+                            .size(rowW(), 10)
                             .color(OWNER_COLOR));
                 }
                 list.child(channelRow(row, connected));
-                if (connected) {
+                if (connected && !dualPane) {
                     list.child(stateRow(view.state));
                 }
             }
@@ -749,16 +1077,21 @@ public final class WarpCoverGui extends CoverBaseGui<BaseWarpCover> {
                 list.child(
                     IKey.lang(view.rows.isEmpty() ? "warpcovers.gui.no_channels" : "warpcovers.gui.no_match")
                         .asWidget()
-                        .size(ROW_W, ROW_H)
+                        .size(rowW(), ROW_H)
                         .color(OWNER_COLOR));
             }
             return list;
         }
 
+        /** 列表项宽度：给滚动条留位。 */
+        private int rowW() {
+            return pageW - 8;
+        }
+
         /** 第一行：颜色、频道名、最近传输的图标；第二行：归属者、连接端数量、私人标签。 */
         private IWidget channelRow(PanelSnapshot.ChannelRow row, boolean connected) {
             boolean gear = !manager && row.hasConfigPanel();
-            int width = gear ? ROW_W - 15 : ROW_W;
+            int width = gear ? rowW() - 15 : rowW();
             boolean showRecents = type.hasFilter();
             int iconsW = showRecents ? RECENT_ICONS * RECENT_ICON : 0;
             ParentWidget<?> content = new ParentWidget<>();
@@ -771,7 +1104,7 @@ public final class WarpCoverGui extends CoverBaseGui<BaseWarpCover> {
             content.child(
                 new ScrollingTextWidget(IKey.str(row.name)).pos(14, 2)
                     .size(width - 16 - iconsW, 8)
-                    .color(BUTTON_TEXT));
+                    .color(connected ? CONNECTED_ROW_COLOR : BUTTON_TEXT));
             if (showRecents) {
                 for (int i = 0; i < RECENT_ICONS; i++) {
                     int index = i;
@@ -804,15 +1137,17 @@ public final class WarpCoverGui extends CoverBaseGui<BaseWarpCover> {
                             tooltip.addLine(tr("warpcovers.gui.row.recent", objectLabel(key)));
                         }
                     }
-                    tooltip.addLine(
-                        tr(
-                            manager ? "warpcovers.gui.row.manage"
-                                : connected ? "warpcovers.gui.row.disconnect" : "warpcovers.gui.row.connect"));
+                    tooltip.addLine(tr(rowClickTipKey(connected)));
                     tooltip.addLine(tr("warpcovers.gui.row.tags"));
                 })
                 .tooltipAutoUpdate(true);
             if (connected) {
                 button.background(GTGuiTextures.BUTTON_STANDARD_PRESSED);
+            }
+            if (dualPane) {
+                IDrawable frame = new Rectangle().color(PICKED_FRAME)
+                    .hollow(1);
+                button.overlay(new DynamicDrawable(() -> isPicked(row.id) ? frame : IDrawable.EMPTY));
             }
             button.onMousePressed(mouse -> {
                 if (mouse == 1) {
@@ -826,6 +1161,10 @@ public final class WarpCoverGui extends CoverBaseGui<BaseWarpCover> {
                     openConfigDialog(button, row.id);
                     return true;
                 }
+                if (dualPane) {
+                    pickedId = row.id;
+                    return true;
+                }
                 send("toggle", buf -> NetworkUtils.writeStringSafe(buf, row.id));
                 return true;
             });
@@ -833,10 +1172,10 @@ public final class WarpCoverGui extends CoverBaseGui<BaseWarpCover> {
                 return button;
             }
             ParentWidget<?> line = new ParentWidget<>();
-            line.size(ROW_W, CHANNEL_ROW_H);
+            line.size(rowW(), CHANNEL_ROW_H);
             line.child(button);
             ButtonWidget<?> open = new ButtonWidget<>();
-            open.pos(ROW_W - 14, 4)
+            open.pos(rowW() - 14, 4)
                 .size(12, 12)
                 .overlay(GuiTextures.GEAR)
                 .addTooltipLine(tr("warpcovers.gui.config.open"));
@@ -849,6 +1188,16 @@ public final class WarpCoverGui extends CoverBaseGui<BaseWarpCover> {
             });
             line.child(open);
             return line;
+        }
+
+        private String rowClickTipKey(boolean connected) {
+            if (manager) {
+                return "warpcovers.gui.row.manage";
+            }
+            if (dualPane) {
+                return "warpcovers.gui.row.select";
+            }
+            return connected ? "warpcovers.gui.row.disconnect" : "warpcovers.gui.row.connect";
         }
 
         private String rowDetail(PanelSnapshot.ChannelRow row) {
@@ -898,12 +1247,12 @@ public final class WarpCoverGui extends CoverBaseGui<BaseWarpCover> {
             }))
                 .hintText(tr("warpcovers.gui.search"));
             field.pos(CREATE_W + 2, 1)
-                .size(PAGE_W - CREATE_W - TAG_FILTER_W - 4, 12)
+                .size(pageW - CREATE_W - TAG_FILTER_W - 4, 12)
                 .addTooltipLine(tr("warpcovers.gui.search_tip"));
             page.child(field);
 
             ButtonWidget<?> tags = new ButtonWidget<>();
-            tags.pos(PAGE_W - TAG_FILTER_W, 0)
+            tags.pos(pageW - TAG_FILTER_W, 0)
                 .size(TAG_FILTER_W, ROW_H)
                 .overlay(IKey.dynamic(() -> {
                     String current = channelsView().tagFilter;
@@ -1702,14 +2051,18 @@ public final class WarpCoverGui extends CoverBaseGui<BaseWarpCover> {
                     .pos(x, 0)
                     .size(width, 9)
                     .color(TEXT_COLOR));
+            page.child(
+                numberField(value, min, max, tooltip).pos(x, 10)
+                    .size(width, 12));
+        }
+
+        private TextFieldWidget numberField(LongSyncValue value, long min, long max, Supplier<String> tooltip) {
             TextFieldWidget field = new TextFieldWidget();
             field.value(value)
                 .setValidator(text -> NumberInput.normalize(text, min, max));
-            field.pos(x, 10)
-                .size(width, 12)
-                .tooltipDynamic(lines -> lines.addLine(tooltip.get()))
+            field.tooltipDynamic(lines -> lines.addLine(tooltip.get()))
                 .tooltipAutoUpdate(true);
-            page.child(field);
+            return field;
         }
 
         private String rateTooltip() {
@@ -2434,6 +2787,24 @@ public final class WarpCoverGui extends CoverBaseGui<BaseWarpCover> {
         private boolean detailIsError() {
             PanelSnapshot.StatusView view = statusView();
             return !view.noticeKey.isEmpty() ? view.noticeError : view.reason != null;
+        }
+
+        /** 双栏界面没有名单分页，不必再说没有名单，只说明直灌规则。 */
+        private void addEnergyNotes(ParentWidget<?> page, int y, int width) {
+            page.child(
+                IKey.lang("warpcovers.gui.energy.direct")
+                    .asWidget()
+                    .alignment(Alignment.TopLeft)
+                    .pos(0, y)
+                    .size(width, 36)
+                    .color(OWNER_COLOR));
+            page.child(
+                IKey.lang("warpcovers.gui.energy.source")
+                    .asWidget()
+                    .alignment(Alignment.TopLeft)
+                    .pos(0, y + 38)
+                    .size(width, 27)
+                    .color(OWNER_COLOR));
         }
 
         /** 能量没有过滤名单：设置页只说明直灌规则。 */

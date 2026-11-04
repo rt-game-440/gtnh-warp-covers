@@ -204,14 +204,31 @@ public final class CoverPanel {
         return report(PanelNotice.info("created", channel.name()));
     }
 
-    /** 点击频道：未连该频道则连上（连接者为该玩家），已连则断开。 */
+    /** 对这个频道，连接按钮现在该做什么。 */
+    public ConnectionAction connectionAction(String channelId) {
+        Channel current = connectedChannel();
+        return ConnectionAction.of(current == null ? "" : current.id(), channelId);
+    }
+
+    /**
+     * 执行连接按钮：玩家点按钮时看到的操作和服务端现状不一致就忽略并返回 null。
+     * 否则连点「连接此频道」时，第二下还没等到新快照，就会把刚连上的频道断开。
+     */
+    public PanelNotice applyConnection(Viewer viewer, String channelId, ConnectionAction expected) {
+        return connectionAction(channelId) == expected ? toggleConnection(viewer, channelId) : null;
+    }
+
+    /**
+     * 对频道执行当前该做的连接操作：未连接则连上（连接者为该玩家），连着别的频道则换连，已连该频道则断开。
+     * 换连等于断开旧频道再连新频道，所以两个频道的「连接」权限都要有。
+     */
     public PanelNotice toggleConnection(Viewer viewer, String channelId) {
         Channel current = connectedChannel();
+        if (current != null && !hub.hasPermission(viewer.playerId(), current, Permission.CONNECT)) {
+            return report(PanelNotice.error("no_connect_permission", current.name()));
+        }
         if (current != null && current.id()
             .equals(channelId)) {
-            if (!hub.hasPermission(viewer.playerId(), current, Permission.CONNECT)) {
-                return report(PanelNotice.error("no_connect_permission", current.name()));
-            }
             endpoint.disconnect();
             return report(PanelNotice.info("disconnected", current.name()));
         }
@@ -223,7 +240,7 @@ public final class CoverPanel {
             return report(PanelNotice.error("no_connect_permission", target.name()));
         }
         endpoint.connect(target.id(), viewer.playerId());
-        return report(PanelNotice.info("connected", target.name()));
+        return report(PanelNotice.info(current == null ? "connected" : "switched", target.name()));
     }
 
     // ---- 本端配置 ----
