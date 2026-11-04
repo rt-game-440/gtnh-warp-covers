@@ -15,6 +15,7 @@ import com.rtgame.warpcovers.gt.WarpServices;
 import com.rtgame.warpcovers.selfcheck.AggregateCoverScenario;
 import com.rtgame.warpcovers.selfcheck.ChannelConfigScenario;
 import com.rtgame.warpcovers.selfcheck.ChannelListingScenario;
+import com.rtgame.warpcovers.selfcheck.CoverGuiScenario;
 import com.rtgame.warpcovers.selfcheck.CoverAppearanceScenario;
 import com.rtgame.warpcovers.selfcheck.DevEnvironment;
 import com.rtgame.warpcovers.selfcheck.DistributionScenario;
@@ -87,7 +88,8 @@ public class CommonProxy {
             new QuickFilterScenario(),
             new RemoteManagerScenario(),
             new TypeSwitchScenario(),
-            new RecipesScenario());
+            new RecipesScenario(),
+            new CoverGuiScenario());
         SelfCheckRunner runner = new SelfCheckRunner(
             new File(gameDir, "warpcovers-selfcheck-state.txt").toPath(),
             new SelfCheckLog(logDir, Clock.systemDefaultZone()),

@@ -262,6 +262,76 @@ class PermissionsTest {
     }
 
     @Test
+    void 切换要求对旧频道有连接权限() {
+        Channel old = teamChannel("旧频道");
+        identity.join("alice", Identity.MEMBER);
+        CoverPanel panel = panel("p");
+        panel.toggleConnection(alice, old.id());
+        hub.findEndpoint("p")
+            .config()
+            .setState(InteractionState.INPUT);
+        // 陌生人只对新频道有连接权限，对旧频道没有
+        Channel target = teamChannel("公开频道");
+        hub.setPublic(target.id(), true);
+
+        PanelNotice denied = panel.toggleConnection(bob, target.id());
+
+        assertTrue(denied.isError());
+        assertEquals("no_connect_permission", denied.key());
+        assertEquals("旧频道", denied.arg(), "报错应指出缺权限的是旧频道");
+        assertEquals(
+            old.id(),
+            hub.findEndpoint("p")
+                .channelId(),
+            "连接不变");
+        assertEquals(
+            InteractionState.INPUT,
+            hub.findEndpoint("p")
+                .state(),
+            "交互状态不变");
+    }
+
+    @Test
+    void 切换要求对新频道有连接权限() {
+        Channel old = teamChannel("旧频道");
+        identity.join("alice", Identity.MEMBER);
+        CoverPanel panel = panel("p");
+        panel.toggleConnection(alice, old.id());
+        hub.setPublic(old.id(), true);
+        Channel target = teamChannel("私人频道");
+
+        PanelNotice denied = panel.toggleConnection(bob, target.id());
+
+        assertEquals("no_connect_permission", denied.key());
+        assertEquals("私人频道", denied.arg());
+        assertEquals(
+            old.id(),
+            hub.findEndpoint("p")
+                .channelId());
+    }
+
+    @Test
+    void 对两个频道都有连接权限时切换成功且旧频道不再保留连接端() {
+        Channel old = teamChannel("旧频道");
+        Channel target = teamChannel("新频道");
+        identity.join("alice", Identity.MEMBER);
+        CoverPanel panel = panel("p");
+        panel.toggleConnection(alice, old.id());
+
+        assertFalse(
+            panel.toggleConnection(alice, target.id())
+                .isError());
+
+        assertTrue(
+            old.endpoints()
+                .isEmpty());
+        assertEquals(
+            target.id(),
+            hub.findEndpoint("p")
+                .channelId());
+    }
+
+    @Test
     void 修改覆盖板自身设置不需要频道权限() {
         Channel channel = teamChannel("队伍频道");
         identity.join("alice", Identity.MEMBER);
